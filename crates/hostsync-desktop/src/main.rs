@@ -288,9 +288,13 @@ impl App {
                 self.device_user_code.clear();
                 match result {
                     Ok(_) => {
-                        self.servers = storage::load_servers();
                         self.screen = Screen::Home;
-                        self.status_msg.clear();
+                        self.status_msg = "Syncing from cloud...".into();
+                        self.syncing = true;
+                        return Task::perform(
+                            async { hostsync_core::sync::download().await },
+                            Msg::SyncDownloadDone,
+                        );
                     }
                     Err(e) => self.status_msg = format!("Login failed: {}", e),
                 }
