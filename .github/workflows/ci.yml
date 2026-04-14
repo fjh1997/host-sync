@@ -120,11 +120,24 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Build APK
         working-directory: mobile/android
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          # Ensure debug keystore exists for signing
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          ./gradlew assembleRelease --no-daemon
+      - name: Rename APK
+        run: |
+          mv mobile/android/app/build/outputs/apk/release/app-release.apk HostSync.apk 2>/dev/null || \
+          mv mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk HostSync.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          path: HostSync.apk
 
   build-ios:
     name: iOS IPA
@@ -225,5 +238,5 @@ jobs:
             artifacts/hostsync-windows-arm64.zip
             artifacts/hostsync-macos-x64.tar.gz
             artifacts/hostsync-macos-arm64.tar.gz
-            artifacts/android-apk/app-release-unsigned.apk
+            artifacts/android-apk/HostSync.apk
             artifacts/ios-ipa/HostSync.ipa
