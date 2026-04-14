@@ -1,0 +1,31 @@
+{
+  "name": "HostSync",
+  "identifier": "com.hostsync.altstore",
+  "subtitle": "Linux Server Manager",
+  "description": "Cross-platform Linux server manager with SSH config compatibility.",
+  "iconURL": "https://raw.githubusercontent.com/fjh1997/host-sync/main/altstore/icon.png",
+  "headerURL": "",
+  "website": "https://github.com/fjh1997/host-sync",
+  "tintColor": "#607D8B",
+  "featuredApps": [],
+  "apps": [
+    {
+      "name": "HostSync",
+      "bundleIdentifier": "com.hostsync.hostSync",
+      "developerName": "fjh1997",
+      "subtitle": "Linux Server Manager",
+      "localizedDescription": "Manage your Linux servers across all devices. Features GitHub OAuth login, AES-256 encrypted storage, cloud sync via GitHub Gists, SSH config compatibility, and native terminal integration.",
+      "iconURL": "https://raw.githubusercontent.com/fjh1997/host-sync/main/altstore/icon.png",
+      "tintColor": "#607D8B",
+      "screenshots": [],
+      "versions": [],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "HostSync needs local network access to connect to SSH servers on your local network."
+        }
+      }
+    }
+  ],
+  "news": []
+}
