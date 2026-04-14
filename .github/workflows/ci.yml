@@ -298,6 +298,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         env:
           VER: ${{ needs.changes.outputs.version }}
+          SHA: ${{ needs.changes.outputs.sha }}
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Pre-release ${{ steps.tag.outputs.tag }}"
