@@ -2,6 +2,30 @@ use crate::model::Server;
 use std::fs;
 use std::process::Command;
 
+/// Expands a path that may start with ~ or %USERPROFILE% to an absolute path.
+fn expand_home(path: &str) -> std::path::PathBuf {
+    let home = dirs::home_dir();
+
+    // ~/... or ~\...
+    if let Some(stripped) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        if let Some(ref h) = home {
+            return h.join(stripped);
+        }
+    }
+
+    // %USERPROFILE%\...
+    if let Some(stripped) = path
+        .strip_prefix("%USERPROFILE%\\")
+        .or_else(|| path.strip_prefix("%USERPROFILE%/"))
+    {
+        if let Some(ref h) = home {
+            return h.join(stripped);
+        }
+    }
+
+    path.into()
+}
+
 /// If the server has inline private key content and an IdentityFile path,
 /// write the key content to that path (keeping them in sync).
 fn sync_key_to_file(server: &Server) {
@@ -14,16 +38,7 @@ fn sync_key_to_file(server: &Server) {
         _ => return,
     };
 
-    // Expand ~ to home dir
-    let expanded = if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            home.join(stripped)
-        } else {
-            path.into()
-        }
-    } else {
-        path.into()
-    };
+    let expanded = expand_home(path);
 
     if let Some(parent) = expanded.parent() {
         let _ = fs::create_dir_all(parent);

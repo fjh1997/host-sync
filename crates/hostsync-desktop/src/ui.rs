@@ -207,12 +207,18 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
     .spacing(6)
     .padding(16);
 
+    let key_path_hint = if cfg!(windows) {
+        "e.g. C:\\Users\\you\\.ssh\\id_rsa  or  ~/.ssh/id_rsa"
+    } else {
+        "e.g. ~/.ssh/id_rsa"
+    };
+
     if is_key {
         fields = fields
             .push(text("IdentityFile (path)").size(13))
             .push(
                 row![
-                    text_input("~/.ssh/id_rsa", &app.form_identity_file)
+                    text_input(key_path_hint, &app.form_identity_file)
                         .on_input(Msg::FormIdentityFile)
                         .padding(8),
                     button("Browse").on_press(Msg::FormBrowseIdentityFile),
