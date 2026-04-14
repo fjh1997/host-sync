@@ -1,22 +1,41 @@
 # HostSync
 
-Cross-platform Linux server manager — fully native binaries, no runtime, no VM.
+Securely manage, sync and connect to all your Linux servers — SSH keys, passwords, and configs, encrypted and synced across every device.
 
-跨平台 Linux 服务器管理器 — 全原生二进制，无运行时，无虚拟机。
+安全管理、同步和连接你所有的 Linux 服务器 — SSH 密钥、密码和配置，加密存储并在所有设备间同步。
 
-Built in Rust for minimal binary size (~5MB) and memory usage (~5MB RAM).
+Cross-platform native binaries built in Rust. ~5MB binary, ~5MB RAM.
 
-使用 Rust 构建，二进制体积约 5MB，内存占用约 5MB。
+跨平台原生二进制，Rust 构建。约 5MB 体积，约 5MB 内存。
 
 ## Features / 功能
 
+- **SSH Key Management / SSH 密钥管理** — Store SSH private keys (PEM/OpenSSH), IdentityFile paths, and passphrases in one place. Never lose track of which key goes to which server. / 集中存储 SSH 私钥（PEM/OpenSSH 格式）、IdentityFile 路径和密钥口令，再也不会搞混哪台服务器用哪把钥匙
+- **Encrypted Key Sync / 加密密钥同步** — All SSH keys and passwords are AES-256-GCM encrypted (Argon2 key derivation) before syncing. Your private keys never leave your devices in plaintext. / 所有 SSH 密钥和密码在同步前均经过 AES-256-GCM 加密（Argon2 密钥派生），私钥永远不会以明文离开你的设备
+- **Cross-Device Sync via GitHub Gists / 通过 GitHub Gist 跨设备同步** — Encrypted credentials synced through a private Gist. Add a server on your PC, connect from your phone. / 加密凭据通过私有 Gist 同步，在电脑上添加服务器，手机上即可连接
+- **SSH Config Compatible / SSH Config 兼容** — Import keys and hosts from `~/.ssh/config`, export back. IdentityFile paths preserved. / 从 `~/.ssh/config` 导入密钥和主机，也可导出回去，IdentityFile 路径完整保留
 - **GitHub OAuth Login / GitHub OAuth 登录** — Sign in with GitHub, no separate account needed / 使用 GitHub 登录，无需单独注册账号
-- **AES-256-GCM Encrypted Storage / AES-256-GCM 加密存储** — Passwords and keys encrypted locally with Argon2 key derivation / 密码和密钥使用 Argon2 密钥派生在本地加密存储
-- **Cloud Sync via GitHub Gists / 通过 GitHub Gist 云同步** — Encrypted data synced across devices through a private Gist / 加密数据通过私有 Gist 在所有设备间同步
-- **SSH Config Compatible / SSH Config 兼容** — Import/export standard `~/.ssh/config` format / 导入导出标准 `~/.ssh/config` 格式
-- **Desktop: Native Terminal / 桌面端：原生终端** — Opens system terminal (Windows Terminal / Terminal.app / gnome-terminal) / 调用系统终端连接（Windows Terminal / Terminal.app / gnome-terminal）
-- **Mobile: Built-in SSH Terminal / 移动端：内置 SSH 终端** — Android (JSch) and iOS (libssh2) native SSH shells / Android (JSch) 和 iOS (libssh2) 原生 SSH 终端
-- **Truly Native / 真正原生** — No Electron, no WebView, no Flutter, no VM. Pure compiled binaries. / 无 Electron、无 WebView、无 Flutter、无虚拟机，纯编译二进制
+- **Desktop: Native Terminal / 桌面端：原生终端** — Opens system terminal with `ssh -F` referencing your keys / 调用系统终端通过 `ssh -F` 引用你的密钥连接
+- **Mobile: Built-in SSH Terminal / 移动端：内置 SSH 终端** — Connect with stored keys directly from Android/iOS / 在 Android/iOS 上直接使用已存储的密钥连接
+- **Truly Native / 真正原生** — No Electron, no WebView, no Flutter, no VM. Pure compiled Rust binaries. / 无 Electron、无 WebView、无 Flutter、无虚拟机，纯 Rust 编译二进制
+
+## Why HostSync? / 为什么用 HostSync？
+
+Managing SSH keys across multiple machines is painful:
+- Keys scattered across `~/.ssh/` on different devices
+- Copying private keys via insecure channels (email, chat, USB)
+- Forgetting which key authenticates to which server
+- No way to access your servers from your phone
+
+HostSync solves this: one encrypted vault for all your SSH keys, passwords, and server configs — synced securely across every device you own.
+
+跨设备管理 SSH 密钥很麻烦：
+- 密钥散落在不同设备的 `~/.ssh/` 目录
+- 通过不安全的渠道（邮件、聊天、U盘）复制私钥
+- 忘记哪把密钥对应哪台服务器
+- 手机上无法访问你的服务器
+
+HostSync 解决这些问题：一个加密保险库存放所有 SSH 密钥、密码和服务器配置 — 在你的所有设备间安全同步。
 
 ## Architecture / 架构
 
@@ -81,6 +100,41 @@ cargo build --release --target aarch64-apple-ios -p hostsync-core
 2. Edit `crates/hostsync-core/src/auth.rs` with your Client ID/Secret / 编辑 `crates/hostsync-core/src/auth.rs` 填入你的 Client ID 和 Secret
 3. Build and run / 构建并运行
 
+## SSH Key Management / SSH 密钥管理
+
+HostSync supports two ways to store SSH keys per server:
+
+HostSync 支持两种方式存储每台服务器的 SSH 密钥：
+
+| Method / 方式 | Field / 字段 | Use case / 使用场景 |
+|---|---|---|
+| **IdentityFile path** | `~/.ssh/id_rsa` | Desktop — references key file on disk, used by native `ssh` / 桌面端 — 引用磁盘上的密钥文件，由原生 `ssh` 使用 |
+| **Inline private key** | PEM content stored in vault | Mobile & cross-device — key content encrypted and synced / 移动端和跨设备 — 密钥内容加密后同步 |
+
+Both can be set simultaneously: desktop uses the file path, mobile uses the inline key.
+
+两者可以同时设置：桌面端使用文件路径，移动端使用内联密钥。
+
+### Security model / 安全模型
+
+```
+Your SSH keys & passwords
+        ↓
+AES-256-GCM encrypt (Argon2 derived key)
+        ↓
+Encrypted blob stored locally
+        ↓ (sync)
+Private GitHub Gist (still encrypted)
+        ↓ (other device)
+AES-256-GCM decrypt (same key)
+        ↓
+Your SSH keys & passwords
+```
+
+- Keys are encrypted at rest and in transit / 密钥在存储和传输中均加密
+- GitHub never sees your plaintext keys / GitHub 永远看不到你的明文密钥
+- Encryption key is generated locally and never uploaded / 加密密钥在本地生成，永不上传
+
 ## SSH Config Compatibility / SSH Config 兼容性
 
 Import from `~/.ssh/config` or paste config text. Export generates valid OpenSSH config:
@@ -144,6 +198,11 @@ readme里面要写上claude辅助开发以及本次涉及到的所有提示词�
 #### Prompt 5 — Bilingual README / 中英双语 README
 ```
 readme里面要有中文翻译，About里面也要
+```
+
+#### Prompt 6 — Emphasize SSH key management / 强调 SSH 密钥管理
+```
+在readme和about里面重点强调一下ssh key的管理和同步
 ```
 
 ## License / 许可证
