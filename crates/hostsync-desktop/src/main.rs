@@ -18,7 +18,7 @@ enum Screen {
     Home,
     AddEdit(Option<usize>),
     ImportPaste,
-    ProxySettings,
+    ProxySettings { from_login: bool },
 }
 
 struct App {
@@ -231,7 +231,12 @@ impl App {
     fn update(&mut self, msg: Msg) -> Task<Msg> {
         match msg {
             Msg::GoHome => {
-                self.screen = Screen::Home;
+                // If coming from proxy settings, return to the correct screen
+                if let Screen::ProxySettings { from_login: true } = self.screen {
+                    self.screen = Screen::Login;
+                } else {
+                    self.screen = Screen::Home;
+                }
                 self.status_msg.clear();
             }
             Msg::GoAdd => {
@@ -407,8 +412,9 @@ impl App {
             }
             Msg::PasteTextChanged(s) => self.paste_text = s,
             Msg::GoProxy => {
+                let from_login = matches!(self.screen, Screen::Login);
                 self.proxy_input = storage::load_proxy().unwrap_or_default();
-                self.screen = Screen::ProxySettings;
+                self.screen = Screen::ProxySettings { from_login };
             }
             Msg::ProxyInput(s) => self.proxy_input = s,
             Msg::ProxySave => {
@@ -418,12 +424,8 @@ impl App {
                 } else {
                     format!("Proxy set to {}", self.proxy_input.trim())
                 };
-                // Go back to where we came from
-                if storage::is_logged_in() {
-                    self.screen = Screen::Home;
-                } else {
-                    self.screen = Screen::Login;
-                }
+                let from_login = matches!(self.screen, Screen::ProxySettings { from_login: true });
+                self.screen = if from_login { Screen::Login } else { Screen::Home };
             }
             Msg::Noop => {}
         }
@@ -436,7 +438,7 @@ impl App {
             Screen::Home => ui::home_view(self),
             Screen::AddEdit(edit_idx) => ui::form_view(self, *edit_idx),
             Screen::ImportPaste => ui::paste_view(&self.paste_text),
-            Screen::ProxySettings => ui::proxy_view(&self.proxy_input),
+            Screen::ProxySettings { .. } => ui::proxy_view(&self.proxy_input),
         }
     }
 }
