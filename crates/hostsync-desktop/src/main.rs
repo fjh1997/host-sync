@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod ui;
 
 use hostsync_core::storage;
@@ -14,8 +16,9 @@ fn main() -> iced::Result {
 enum Screen {
     Login,
     Home,
-    AddEdit(Option<usize>), // None = add, Some(idx) = edit
+    AddEdit(Option<usize>),
     ImportPaste,
+    ProxySettings,
 }
 
 struct App {
@@ -41,6 +44,8 @@ struct App {
     // Device Flow login
     device_user_code: String,
     logging_in: bool,
+    // Proxy
+    proxy_input: String,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +89,10 @@ enum Msg {
     ExportClipboard,
     ExportSystem,
     PasteTextChanged(String),
+    // Proxy
+    GoProxy,
+    ProxyInput(String),
+    ProxySave,
     // Misc
     Noop,
 }
@@ -112,6 +121,7 @@ impl App {
                 syncing: false,
                 device_user_code: String::new(),
                 logging_in: false,
+                proxy_input: storage::load_proxy().unwrap_or_default(),
             },
             Task::none(),
         )
@@ -396,6 +406,25 @@ impl App {
                 }
             }
             Msg::PasteTextChanged(s) => self.paste_text = s,
+            Msg::GoProxy => {
+                self.proxy_input = storage::load_proxy().unwrap_or_default();
+                self.screen = Screen::ProxySettings;
+            }
+            Msg::ProxyInput(s) => self.proxy_input = s,
+            Msg::ProxySave => {
+                let _ = storage::save_proxy(&self.proxy_input);
+                self.status_msg = if self.proxy_input.trim().is_empty() {
+                    "Proxy cleared".into()
+                } else {
+                    format!("Proxy set to {}", self.proxy_input.trim())
+                };
+                // Go back to where we came from
+                if storage::is_logged_in() {
+                    self.screen = Screen::Home;
+                } else {
+                    self.screen = Screen::Login;
+                }
+            }
             Msg::Noop => {}
         }
         Task::none()
@@ -407,6 +436,7 @@ impl App {
             Screen::Home => ui::home_view(self),
             Screen::AddEdit(edit_idx) => ui::form_view(self, *edit_idx),
             Screen::ImportPaste => ui::paste_view(&self.paste_text),
+            Screen::ProxySettings => ui::proxy_view(&self.proxy_input),
         }
     }
 }

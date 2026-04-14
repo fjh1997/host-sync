@@ -100,3 +100,29 @@ pub fn clear_github_state() -> std::io::Result<()> {
 pub fn is_logged_in() -> bool {
     load_github_state().token.is_some()
 }
+
+// --- Proxy settings ---
+
+fn proxy_path() -> PathBuf {
+    data_dir().join("proxy.txt")
+}
+
+/// Load saved proxy URL (e.g. "http://127.0.0.1:10808" or "socks5://127.0.0.1:1080").
+/// Returns None if no proxy is configured.
+pub fn load_proxy() -> Option<String> {
+    std::fs::read_to_string(proxy_path())
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Save proxy URL. Pass empty string to clear.
+pub fn save_proxy(proxy: &str) -> std::io::Result<()> {
+    ensure_dir()?;
+    if proxy.trim().is_empty() {
+        let _ = std::fs::remove_file(proxy_path());
+        Ok(())
+    } else {
+        std::fs::write(proxy_path(), proxy.trim())
+    }
+}

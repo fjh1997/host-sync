@@ -33,6 +33,10 @@ pub fn login_view<'a>(status: &'a str, user_code: &'a str, logging_in: bool) -> 
         content = content.push(text(status).size(13));
     }
 
+    content = content
+        .push(Space::with_height(16))
+        .push(button(text("Proxy Settings").size(13)).on_press(Msg::GoProxy));
+
     container(content)
         .center_x(Length::Fill)
         .center_y(Length::Fill)
@@ -53,6 +57,7 @@ pub fn home_view(app: &App) -> Element<'_, Msg> {
         button("Import Text").on_press(Msg::GoImportPaste),
         button("Export Copy").on_press(Msg::ExportClipboard),
         button("Export SSH").on_press(Msg::ExportSystem),
+        button("Proxy").on_press(Msg::GoProxy),
         text(username).size(14),
         button("Logout").on_press(Msg::Logout),
     ]
@@ -288,6 +293,37 @@ pub fn paste_view(paste_text: &str) -> Element<'_, Msg> {
             button("Cancel").on_press(Msg::GoHome),
             horizontal_space(),
             button("Import").padding([8, 24]).on_press(Msg::ImportPasteConfirm),
+        ]
+        .spacing(8),
+    ]
+    .spacing(8)
+    .padding(20);
+
+    container(content).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn proxy_view(proxy_input: &str) -> Element<'_, Msg> {
+    let current = hostsync_core::storage::load_proxy();
+    let status_text = match &current {
+        Some(p) => format!("Current proxy: {}", p),
+        None => "No proxy configured (direct connection)".to_string(),
+    };
+
+    let content = column![
+        text("Proxy Settings").size(22),
+        Space::with_height(8),
+        text(status_text).size(13),
+        Space::with_height(12),
+        text("HTTP/SOCKS5 Proxy URL").size(13),
+        text_input("e.g. http://127.0.0.1:10808 or socks5://127.0.0.1:1080", proxy_input)
+            .on_input(Msg::ProxyInput)
+            .padding(8),
+        text("Leave empty to use direct connection.").size(12),
+        Space::with_height(16),
+        row![
+            button("Cancel").on_press(Msg::GoHome),
+            horizontal_space(),
+            button(text("Save").size(14)).padding([8, 24]).on_press(Msg::ProxySave),
         ]
         .spacing(8),
     ]

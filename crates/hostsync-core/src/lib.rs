@@ -3,6 +3,8 @@ pub mod crypto;
 pub mod ssh_config;
 pub mod storage;
 #[cfg(feature = "network")]
+pub mod http;
+#[cfg(feature = "network")]
 pub mod auth;
 #[cfg(feature = "network")]
 pub mod sync;

@@ -12,12 +12,16 @@ fn headers(token: &str) -> reqwest::header::HeaderMap {
     h
 }
 
+fn make_client() -> Result<Client, String> {
+    crate::http::client()
+}
+
 /// Uploads encrypted server data to a GitHub Gist.
 pub async fn upload() -> Result<(), String> {
     let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let data = storage::get_raw_encrypted().ok_or("no data to upload")?;
-    let client = Client::new();
+    let client = make_client()?;
 
     if let Some(ref gist_id) = state.gist_id {
         // Update existing gist
@@ -66,7 +70,7 @@ pub async fn upload() -> Result<(), String> {
 pub async fn download() -> Result<(), String> {
     let mut state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
-    let client = Client::new();
+    let client = make_client()?;
 
     // Find gist if we don't have the ID
     if state.gist_id.is_none() {
