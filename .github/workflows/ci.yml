@@ -188,7 +188,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
-          path: mobile/ios/build/HostSync.ipa
+          path: mobile/ios/HostSync.ipa
 
       # Also upload universal sim lib for developers
       - name: Create universal sim library
