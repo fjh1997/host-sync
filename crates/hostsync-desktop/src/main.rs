@@ -101,8 +101,17 @@ enum Msg {
 
 impl App {
     fn new() -> (Self, Task<Msg>) {
-        let servers = storage::load_servers();
         let logged_in = storage::is_logged_in();
+        // Always start with local cache; if logged in, immediately sync from cloud
+        let servers = storage::load_servers();
+        let task = if logged_in {
+            Task::perform(
+                async { hostsync_core::sync::download().await },
+                Msg::SyncDownloadDone,
+            )
+        } else {
+            Task::none()
+        };
         (
             Self {
                 screen: if logged_in { Screen::Home } else { Screen::Login },
@@ -119,13 +128,13 @@ impl App {
                 form_passphrase: String::new(),
                 form_notes: String::new(),
                 paste_text: String::new(),
-                status_msg: String::new(),
-                syncing: false,
+                status_msg: if logged_in { "Syncing from cloud...".into() } else { String::new() },
+                syncing: logged_in,
                 device_user_code: String::new(),
                 logging_in: false,
                 proxy_input: storage::load_proxy().unwrap_or_default(),
             },
-            Task::none(),
+            task,
         )
     }
 

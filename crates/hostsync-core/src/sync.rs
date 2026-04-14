@@ -16,14 +16,37 @@ fn make_client() -> Result<Client, String> {
     crate::http::client()
 }
 
+/// Searches the user's gists for one containing hostsync_data.enc.
+/// Returns the gist ID if found.
+async fn find_remote_gist(client: &Client, token: &str) -> Result<Option<String>, String> {
+    let resp = client
+        .get("https://api.github.com/gists?per_page=100")
+        .headers(headers(token))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let gists: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
+    for gist in &gists {
+        if let Some(files) = gist["files"].as_object() {
+            if files.contains_key(GIST_FILE_NAME) {
+                if let Some(id) = gist["id"].as_str() {
+                    return Ok(Some(id.to_string()));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Uploads encrypted server data to a GitHub Gist.
+/// Always queries remote to find existing gist; creates a new one if none exists.
 pub async fn upload() -> Result<(), String> {
     let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let data = storage::get_raw_encrypted().ok_or("no data to upload")?;
     let client = make_client()?;
 
-    if let Some(ref gist_id) = state.gist_id {
+    if let Some(gist_id) = find_remote_gist(&client, token).await? {
         let body = serde_json::json!({
             "files": { GIST_FILE_NAME: { "content": data } }
         });
@@ -50,14 +73,7 @@ pub async fn upload() -> Result<(), String> {
             .send()
             .await
             .map_err(|e| e.to_string())?;
-        if resp.status().is_success() {
-            let gist: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            if let Some(id) = gist["id"].as_str() {
-                let mut s = storage::load_github_state();
-                s.gist_id = Some(id.to_string());
-                storage::save_github_state(&s).map_err(|e| e.to_string())?;
-            }
-        } else {
+        if !resp.status().is_success() {
             return Err(format!("create gist failed: {}", resp.status()));
         }
     }
@@ -65,34 +81,16 @@ pub async fn upload() -> Result<(), String> {
 }
 
 /// Downloads encrypted data from GitHub Gist and saves locally.
+/// Always queries remote to find the gist; verifies decryption before saving.
 pub async fn download() -> Result<(), String> {
-    let mut state = storage::load_github_state();
+    let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let client = make_client()?;
 
-    // Find gist if we don't have the ID
-    if state.gist_id.is_none() {
-        let resp = client
-            .get("https://api.github.com/gists?per_page=100")
-            .headers(headers(token))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let gists: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
-        for gist in &gists {
-            if let Some(files) = gist["files"].as_object() {
-                if files.contains_key(GIST_FILE_NAME) {
-                    if let Some(id) = gist["id"].as_str() {
-                        state.gist_id = Some(id.to_string());
-                        storage::save_github_state(&state).map_err(|e| e.to_string())?;
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    let gist_id = find_remote_gist(&client, token)
+        .await?
+        .ok_or("no hostsync gist found in your GitHub account")?;
 
-    let gist_id = state.gist_id.as_deref().ok_or("no gist found")?;
     let resp = client
         .get(format!("https://api.github.com/gists/{}", gist_id))
         .headers(headers(token))
@@ -108,6 +106,11 @@ pub async fn download() -> Result<(), String> {
     let content = gist["files"][GIST_FILE_NAME]["content"]
         .as_str()
         .ok_or("file not found in gist")?;
+
+    // Verify the downloaded data can be decrypted with current key
+    let key = storage::get_encryption_key();
+    crate::crypto::decrypt(content.trim(), &key)
+        .map_err(|_| "cloud data cannot be decrypted (encrypted with a different key), please re-upload from a device that has your servers".to_string())?;
 
     storage::set_raw_encrypted(content).map_err(|e| e.to_string())
 }
