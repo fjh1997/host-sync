@@ -1,0 +1,228 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  test:
+    name: Analyze & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  build-android:
+    name: Build Android
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-ios:
+    name: Build iOS
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      - name: Create IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r ../../../HostSync.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: HostSync.ipa
+
+  build-linux:
+    name: Build Linux
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Archive
+        run: |
+          cd build/linux/x64/release/bundle
+          tar czf ../../../../../HostSync-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: HostSync-linux-x64.tar.gz
+
+  build-windows:
+    name: Build Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Archive
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath HostSync-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: HostSync-windows-x64.zip
+
+  build-macos:
+    name: Build macOS
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Archive
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../../HostSync-macos.zip HostSync.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: HostSync-macos.zip
+
+  release:
+    name: Create Release
+    needs: [build-android, build-ios, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "HostSync ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: |
+            artifacts/android-apk/app-release.apk
+            artifacts/ios-ipa/HostSync.ipa
+            artifacts/linux-x64/HostSync-linux-x64.tar.gz
+            artifacts/windows-x64/HostSync-windows-x64.zip
+            artifacts/macos-app/HostSync-macos.zip
+
+  update-altstore:
+    name: Update AltStore Source
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate AltStore source.json
+        run: |
+          REPO="${{ github.repository }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          IPA_URL="https://github.com/${REPO}/releases/download/${TAG}/HostSync.ipa"
+
+          cat > altstore/source.json << ENDJSON
+          {
+            "name": "HostSync",
+            "identifier": "com.hostsync.altstore",
+            "subtitle": "Linux Server Manager",
+            "description": "Cross-platform Linux server manager with SSH config compatibility. Manage, sync and connect to all your servers.",
+            "iconURL": "https://raw.githubusercontent.com/${REPO}/main/altstore/icon.png",
+            "headerURL": "",
+            "website": "https://github.com/${REPO}",
+            "tintColor": "#607D8B",
+            "featuredApps": [],
+            "apps": [
+              {
+                "name": "HostSync",
+                "bundleIdentifier": "com.hostsync.hostSync",
+                "developerName": "fjh1997",
+                "subtitle": "Linux Server Manager",
+                "localizedDescription": "Manage your Linux servers across all devices. Features GitHub OAuth login, AES-256 encrypted storage, cloud sync via GitHub Gists, SSH config compatibility, and native terminal integration.",
+                "iconURL": "https://raw.githubusercontent.com/${REPO}/main/altstore/icon.png",
+                "tintColor": "#607D8B",
+                "screenshots": [],
+                "versions": [
+                  {
+                    "version": "${VERSION}",
+                    "date": "${DATE}",
+                    "localizedDescription": "HostSync ${TAG}",
+                    "downloadURL": "${IPA_URL}",
+                    "size": 0,
+                    "minOSVersion": "15.0"
+                  }
+                ],
+                "appPermissions": {
+                  "entitlements": [],
+                  "privacy": {
+                    "NSLocalNetworkUsageDescription": "HostSync needs local network access to connect to SSH servers on your local network."
+                  }
+                }
+              }
+            ],
+            "news": []
+          }
+          ENDJSON
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./altstore
+          destination_dir: .
+          keep_files: false

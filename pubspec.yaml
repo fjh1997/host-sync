@@ -1,0 +1,37 @@
+name: host_sync
+description: "Cross-platform Linux server manager with SSH connectivity"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.6.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # OAuth & HTTP
+  url_launcher: ^6.2.5
+  http: ^1.2.1
+  # Local storage
+  shared_preferences: ^2.2.3
+  # Encryption
+  encrypt: ^5.0.3
+  pointycastle: ^3.9.1
+  # SSH (mobile terminal)
+  dartssh2: ^2.9.3
+  xterm: ^4.0.0
+  # UUID
+  uuid: ^4.3.3
+  # Path
+  path_provider: ^2.1.2
+  # Process (desktop terminal launch)
+  process_run: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
