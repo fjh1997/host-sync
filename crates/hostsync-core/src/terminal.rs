@@ -49,6 +49,20 @@ fn sync_key_to_file(server: &Server) {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&expanded, fs::Permissions::from_mode(0o600));
         }
+        #[cfg(windows)]
+        {
+            // Windows SSH requires key files to only be accessible by the current user.
+            // Remove inherited ACLs, then grant only the current user full control.
+            let path_str = expanded.to_string_lossy();
+            let _ = Command::new("icacls")
+                .args([path_str.as_ref(), "/inheritance:r"])
+                .output();
+            if let Ok(user) = std::env::var("USERNAME") {
+                let _ = Command::new("icacls")
+                    .args([path_str.as_ref(), "/grant:r", &format!("{}:F", user)])
+                    .output();
+            }
+        }
     }
 }
 
