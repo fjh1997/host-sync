@@ -73,8 +73,6 @@ enum Msg {
     FormAuthKey,
     FormPassword(String),
     FormIdentityFile(String),
-    FormBrowseIdentityFile,
-    FormBrowseIdentityFileDone(Option<String>),
     FormPrivateKey(String),
     FormBrowsePrivateKey,
     FormBrowsePrivateKeyDone(Option<(String, String)>), // (path, content)
@@ -336,24 +334,6 @@ impl App {
             }
             Msg::FormPassword(s) => self.form_password = s,
             Msg::FormIdentityFile(s) => self.form_identity_file = s,
-            Msg::FormBrowseIdentityFile => {
-                return Task::perform(
-                    async {
-                        let file = rfd::AsyncFileDialog::new()
-                            .set_title("Select SSH Key File")
-                            .add_filter("All Files", &["*"])
-                            .pick_file()
-                            .await;
-                        file.map(|f| f.path().to_string_lossy().to_string())
-                    },
-                    Msg::FormBrowseIdentityFileDone,
-                );
-            }
-            Msg::FormBrowseIdentityFileDone(path) => {
-                if let Some(p) = path {
-                    self.form_identity_file = p;
-                }
-            }
             Msg::FormPrivateKey(s) => self.form_private_key = s,
             Msg::FormBrowsePrivateKey => {
                 return Task::perform(

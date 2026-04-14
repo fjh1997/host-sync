@@ -15,10 +15,14 @@ pub fn login_view<'a>(status: &'a str, user_code: &'a str, logging_in: bool) -> 
     .align_x(Alignment::Center);
 
     if !user_code.is_empty() {
-        // Show the device code for the user to enter
+        // Show the device code for the user to enter (selectable so user can copy)
         content = content
             .push(text("Enter this code on GitHub:").size(14))
-            .push(text(user_code).size(36))
+            .push(
+                text_input("", user_code)
+                    .size(36)
+                    .padding(8),
+            )
             .push(text("(copied to clipboard)").size(12))
             .push(text("Waiting for authorization...").size(13));
     } else {
@@ -221,21 +225,16 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
                     text_input(key_path_hint, &app.form_identity_file)
                         .on_input(Msg::FormIdentityFile)
                         .padding(8),
-                    button("Browse").on_press(Msg::FormBrowseIdentityFile),
+                    button("Browse").on_press(Msg::FormBrowsePrivateKey),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
             )
             .push(text("Private Key Content (optional)").size(13))
             .push(
-                row![
-                    text_input("-----BEGIN OPENSSH PRIVATE KEY-----", &app.form_private_key)
-                        .on_input(Msg::FormPrivateKey)
-                        .padding(8),
-                    button("Load File").on_press(Msg::FormBrowsePrivateKey),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
+                text_input("-----BEGIN OPENSSH PRIVATE KEY-----", &app.form_private_key)
+                    .on_input(Msg::FormPrivateKey)
+                    .padding(8),
             )
             .push(text("Key Passphrase (optional)").size(13))
             .push(
