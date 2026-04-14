@@ -339,8 +339,7 @@ impl App {
                 return Task::perform(
                     async {
                         let file = rfd::AsyncFileDialog::new()
-                            .set_title("Select Private Key File")
-                            .add_filter("All Files", &["*"])
+                            .set_title("Select SSH Key File")
                             .pick_file()
                             .await;
                         if let Some(f) = file {
