@@ -12,10 +12,6 @@ fn servers_path() -> PathBuf {
     data_dir().join("servers.enc")
 }
 
-fn legacy_key_path() -> PathBuf {
-    data_dir().join("enc.key")
-}
-
 fn token_path() -> PathBuf {
     data_dir().join("github.json")
 }
@@ -33,41 +29,7 @@ pub fn get_encryption_key() -> String {
         .unwrap_or_default()
 }
 
-/// Migrate data from legacy random enc.key to token-derived key.
-/// Called once on load; deletes enc.key after successful migration.
-fn migrate_legacy_key() {
-    let legacy_path = legacy_key_path();
-    let old_key = match std::fs::read_to_string(&legacy_path) {
-        Ok(k) if !k.trim().is_empty() => k.trim().to_string(),
-        _ => return,
-    };
-
-    let new_key = get_encryption_key();
-    if new_key.is_empty() || old_key == new_key {
-        return;
-    }
-
-    // Try to decrypt with old key and re-encrypt with new key
-    let encrypted = match std::fs::read_to_string(servers_path()) {
-        Ok(s) if !s.trim().is_empty() => s,
-        _ => {
-            let _ = std::fs::remove_file(&legacy_path);
-            return;
-        }
-    };
-
-    if let Ok(json) = crypto::decrypt(encrypted.trim(), &old_key) {
-        let re_encrypted = crypto::encrypt(&json, &new_key);
-        if std::fs::write(servers_path(), re_encrypted).is_ok() {
-            let _ = std::fs::remove_file(&legacy_path);
-        }
-    }
-}
-
 pub fn load_servers() -> Vec<Server> {
-    // One-time migration from legacy enc.key to token-derived key
-    migrate_legacy_key();
-
     let encrypted = match std::fs::read_to_string(servers_path()) {
         Ok(s) if !s.trim().is_empty() => s,
         _ => return Vec::new(),
