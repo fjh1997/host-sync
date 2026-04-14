@@ -94,11 +94,13 @@ jobs:
           path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
 
   build-android:
-    name: Android (.so)
+    name: Android APK
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Build Rust .so for all Android ABIs
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
@@ -106,46 +108,82 @@ jobs:
         with:
           key: android
       - run: cargo install cargo-ndk
-      - run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 build --release -p hostsync-core
-      - name: Collect .so files
-        run: |
-          mkdir -p jniLibs/arm64-v8a jniLibs/armeabi-v7a jniLibs/x86_64 jniLibs/x86
-          cp target/aarch64-linux-android/release/libhostsync_core.so jniLibs/arm64-v8a/
-          cp target/armv7-linux-androideabi/release/libhostsync_core.so jniLibs/armeabi-v7a/
-          cp target/x86_64-linux-android/release/libhostsync_core.so jniLibs/x86_64/
-          cp target/i686-linux-android/release/libhostsync_core.so jniLibs/x86/
+      - name: Build Rust native libraries
+        run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 -o mobile/android/app/src/main/jniLibs build --release -p hostsync-core
+
+      # Build APK with Gradle
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: android-jniLibs
-          path: jniLibs/
+          name: android-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
 
   build-ios:
-    name: iOS (.a)
+    name: iOS IPA
     needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Build Rust .a for iOS
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
       - uses: Swatinem/rust-cache@v2
         with:
           key: ios
-      - name: Build all iOS targets
+      - name: Build Rust static libraries
         run: |
           cargo build --release --target aarch64-apple-ios -p hostsync-core
           cargo build --release --target aarch64-apple-ios-sim -p hostsync-core
           cargo build --release --target x86_64-apple-ios -p hostsync-core
+
+      # Copy device .a into Xcode project directory
+      - name: Place static library
+        run: cp target/aarch64-apple-ios/release/libhostsync_core.a mobile/ios/
+
+      # Build with xcodebuild (no codesign)
+      - name: Build iOS app
+        working-directory: mobile/ios
+        run: |
+          xcodebuild -project HostSync.xcodeproj \
+            -scheme HostSync \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/HostSync.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Package IPA
+      - name: Create IPA
+        run: |
+          cd mobile/ios/build/HostSync.xcarchive/Products/Applications
+          mkdir Payload
+          cp -r HostSync.app Payload/
+          zip -r ../../../../HostSync.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: mobile/ios/build/HostSync.ipa
+
+      # Also upload universal sim lib for developers
       - name: Create universal sim library
         run: |
           lipo -create \
             target/aarch64-apple-ios-sim/release/libhostsync_core.a \
             target/x86_64-apple-ios/release/libhostsync_core.a \
             -output libhostsync_core-ios-sim-universal.a
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-arm64
-          path: target/aarch64-apple-ios/release/libhostsync_core.a
       - uses: actions/upload-artifact@v4
         with:
           name: ios-sim-universal
@@ -173,7 +211,6 @@ jobs:
           for dir in hostsync-windows-*; do
             [ -d "$dir" ] && (cd "$dir" && zip "../${dir}.zip" hostsync.exe)
           done
-          [ -d android-jniLibs ] && (cd android-jniLibs && zip -r ../android-jniLibs.zip .)
       - name: Create Pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -188,5 +225,5 @@ jobs:
             artifacts/hostsync-windows-arm64.zip
             artifacts/hostsync-macos-x64.tar.gz
             artifacts/hostsync-macos-arm64.tar.gz
-            artifacts/android-jniLibs.zip
-            artifacts/ios-arm64/libhostsync_core.a
+            artifacts/android-apk/app-release-unsigned.apk
+            artifacts/ios-ipa/HostSync.ipa

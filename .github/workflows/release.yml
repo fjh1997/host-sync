@@ -103,7 +103,7 @@ jobs:
           path: hostsync-${{ matrix.name }}.*
 
   build-android:
-    name: Android (.so)
+    name: Android APK
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -115,22 +115,23 @@ jobs:
         with:
           key: android
       - run: cargo install cargo-ndk
-      - run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 build --release -p hostsync-core
-      - name: Collect .so files
-        run: |
-          mkdir -p jniLibs/arm64-v8a jniLibs/armeabi-v7a jniLibs/x86_64 jniLibs/x86
-          cp target/aarch64-linux-android/release/libhostsync_core.so jniLibs/arm64-v8a/
-          cp target/armv7-linux-androideabi/release/libhostsync_core.so jniLibs/armeabi-v7a/
-          cp target/x86_64-linux-android/release/libhostsync_core.so jniLibs/x86_64/
-          cp target/i686-linux-android/release/libhostsync_core.so jniLibs/x86/
-          zip -r android-jniLibs.zip jniLibs/
+      - name: Build Rust native libraries
+        run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 -o mobile/android/app/src/main/jniLibs build --release -p hostsync-core
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: android-jniLibs
-          path: android-jniLibs.zip
+          name: android-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
 
   build-ios:
-    name: iOS (.a)
+    name: iOS IPA
     needs: test
     runs-on: macos-latest
     steps:
@@ -141,25 +142,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ios
-      - name: Build all iOS targets
+      - name: Build Rust static libraries
         run: |
           cargo build --release --target aarch64-apple-ios -p hostsync-core
           cargo build --release --target aarch64-apple-ios-sim -p hostsync-core
           cargo build --release --target x86_64-apple-ios -p hostsync-core
-      - name: Create universal sim library
+      - name: Place static library
+        run: cp target/aarch64-apple-ios/release/libhostsync_core.a mobile/ios/
+      - name: Build iOS app
+        working-directory: mobile/ios
         run: |
-          lipo -create \
-            target/aarch64-apple-ios-sim/release/libhostsync_core.a \
-            target/x86_64-apple-ios/release/libhostsync_core.a \
-            -output libhostsync_core-ios-sim-universal.a
+          xcodebuild -project HostSync.xcodeproj \
+            -scheme HostSync \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/HostSync.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Create IPA
+        run: |
+          cd mobile/ios/build/HostSync.xcarchive/Products/Applications
+          mkdir Payload
+          cp -r HostSync.app Payload/
+          zip -r ../../../../HostSync.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-device-arm64
-          path: target/aarch64-apple-ios/release/libhostsync_core.a
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-sim-universal
-          path: libhostsync_core-ios-sim-universal.a
+          name: ios-ipa
+          path: mobile/ios/build/HostSync.ipa
 
   release:
     name: Create Release
@@ -182,9 +193,8 @@ jobs:
             artifacts/hostsync-windows-arm64/hostsync-windows-arm64.zip
             artifacts/hostsync-macos-x64/hostsync-macos-x64.tar.gz
             artifacts/hostsync-macos-arm64/hostsync-macos-arm64.tar.gz
-            artifacts/android-jniLibs/android-jniLibs.zip
-            artifacts/ios-device-arm64/libhostsync_core.a
-            artifacts/ios-sim-universal/libhostsync_core-ios-sim-universal.a
+            artifacts/android-apk/app-release-unsigned.apk
+            artifacts/ios-ipa/HostSync.ipa
 
   update-altstore:
     name: Update AltStore Source
@@ -201,6 +211,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          IPA_URL="https://github.com/${REPO}/releases/download/${TAG}/HostSync.ipa"
           cat > altstore/source.json << ENDJSON
           {
             "name": "HostSync",
@@ -222,7 +233,7 @@ jobs:
                 "version": "${VERSION}",
                 "date": "${DATE}",
                 "localizedDescription": "HostSync ${TAG}",
-                "downloadURL": "https://github.com/${REPO}/releases/download/${TAG}/HostSync.ipa",
+                "downloadURL": "${IPA_URL}",
                 "size": 0,
                 "minOSVersion": "15.0"
               }]
