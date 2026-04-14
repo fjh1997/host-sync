@@ -1,5 +1,6 @@
 use crate::model::Server;
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Expands a path that may start with ~ or %USERPROFILE% to an absolute path.
@@ -26,34 +27,52 @@ fn expand_home(path: &str) -> std::path::PathBuf {
     path.into()
 }
 
-/// If the server has inline private key content and an IdentityFile path,
-/// write the key content to that path (keeping them in sync).
-fn sync_key_to_file(server: &Server) {
-    let path = match server.identity_file.as_deref() {
-        Some(p) if !p.is_empty() => p,
-        _ => return,
-    };
+/// Writes the server's inline private key to a unique file under ~/.ssh/hostsync_keys/
+/// using the server's ID as the filename. This avoids overwriting existing keys or
+/// collisions between servers that share the same identity_file path.
+/// Returns the actual path to use for `-i` in SSH args.
+fn sync_key_to_file(server: &Server) -> Option<String> {
     let key = match server.private_key.as_deref() {
         Some(k) if !k.is_empty() => k,
-        _ => return,
+        _ => {
+            // No inline key — use the original identity_file path as-is
+            return server.identity_file.as_ref().map(|p| {
+                expand_home(p).to_string_lossy().to_string()
+            });
+        }
     };
 
-    let expanded = expand_home(path);
+    // Write to hostsync-managed key directory with unique name per server
+    let key_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".ssh")
+        .join("hostsync_keys");
 
-    if let Some(parent) = expanded.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if fs::write(&expanded, key).is_ok() {
+    let _ = fs::create_dir_all(&key_dir);
+
+    let key_path = key_dir.join(format!("{}.key", server.id));
+
+    // Only write if content differs (avoid unnecessary writes)
+    let needs_write = match fs::read_to_string(&key_path) {
+        Ok(existing) => existing != key,
+        Err(_) => true,
+    };
+
+    if needs_write {
+        if fs::write(&key_path, key).is_err() {
+            return server.identity_file.as_ref().map(|p| {
+                expand_home(p).to_string_lossy().to_string()
+            });
+        }
+        // Fix permissions
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&expanded, fs::Permissions::from_mode(0o600));
+            let _ = fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600));
         }
         #[cfg(windows)]
         {
-            // Windows SSH requires key files to only be accessible by the current user.
-            // Remove inherited ACLs, then grant only the current user full control.
-            let path_str = expanded.to_string_lossy();
+            let path_str = key_path.to_string_lossy();
             let _ = Command::new("icacls")
                 .args([path_str.as_ref(), "/inheritance:r"])
                 .output();
@@ -64,14 +83,15 @@ fn sync_key_to_file(server: &Server) {
             }
         }
     }
+
+    Some(key_path.to_string_lossy().to_string())
 }
 
 /// Launches the system's native terminal with SSH for the given server.
 pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
-    // Sync inline key to IdentityFile path before connecting
-    sync_key_to_file(server);
-
-    let ssh_args = build_ssh_args(server);
+    // Sync inline key to a unique file and get the actual path
+    let key_path = sync_key_to_file(server);
+    let ssh_args = build_ssh_args(server, key_path.as_deref());
 
     #[cfg(target_os = "windows")]
     {
@@ -134,16 +154,17 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
     Err("unsupported platform".to_string())
 }
 
-fn build_ssh_args(server: &Server) -> Vec<String> {
+fn build_ssh_args(server: &Server, key_path: Option<&str>) -> Vec<String> {
     let mut args = vec!["-p".to_string(), server.port.to_string()];
 
-    if let Some(ref path) = server.identity_file {
+    if let Some(path) = key_path {
         if !path.is_empty() {
             args.push("-i".to_string());
-            args.push(path.clone());
+            args.push(path.to_string());
         }
     }
 
     args.push(format!("{}@{}", server.username, server.host));
     args
 }
+
