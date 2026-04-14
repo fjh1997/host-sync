@@ -317,6 +317,12 @@ impl App {
             Msg::Delete(idx) => {
                 self.servers.remove(idx);
                 let _ = storage::save_servers(&self.servers);
+                self.syncing = true;
+                self.status_msg = "Syncing...".into();
+                return Task::perform(
+                    async { hostsync_core::sync::upload().await },
+                    Msg::SyncUploadDone,
+                );
             }
             Msg::FormName(s) => self.form_name = s,
             Msg::FormHost(s) => self.form_host = s,
@@ -382,6 +388,12 @@ impl App {
                 if let Screen::AddEdit(edit_idx) = self.screen {
                     self.save_form(edit_idx);
                     self.screen = Screen::Home;
+                    self.syncing = true;
+                    self.status_msg = "Syncing...".into();
+                    return Task::perform(
+                        async { hostsync_core::sync::upload().await },
+                        Msg::SyncUploadDone,
+                    );
                 }
             }
             Msg::SyncUpload => {
