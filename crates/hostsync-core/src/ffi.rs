@@ -13,8 +13,10 @@ pub extern "C" fn hostsync_load_servers_json() -> *mut c_char {
     CString::new(json).unwrap().into_raw()
 }
 
+/// # Safety
+/// `json` must be a valid, non-null, NUL-terminated C string.
 #[no_mangle]
-pub extern "C" fn hostsync_save_servers_json(json: *const c_char) -> i32 {
+pub unsafe extern "C" fn hostsync_save_servers_json(json: *const c_char) -> i32 {
     let c_str = unsafe { CStr::from_ptr(json) };
     let json_str = match c_str.to_str() {
         Ok(s) => s,
@@ -30,8 +32,10 @@ pub extern "C" fn hostsync_save_servers_json(json: *const c_char) -> i32 {
     }
 }
 
+/// # Safety
+/// `config` must be a valid, non-null, NUL-terminated C string.
 #[no_mangle]
-pub extern "C" fn hostsync_parse_ssh_config(config: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn hostsync_parse_ssh_config(config: *const c_char) -> *mut c_char {
     let c_str = unsafe { CStr::from_ptr(config) };
     let config_str = c_str.to_str().unwrap_or("");
     let servers = ssh_config::parse(config_str);
@@ -58,8 +62,10 @@ pub extern "C" fn hostsync_get_github_username() -> *mut c_char {
     CString::new(name).unwrap().into_raw()
 }
 
+/// # Safety
+/// `s` must be a pointer previously returned by a `hostsync_*` function, or null.
 #[no_mangle]
-pub extern "C" fn hostsync_free_string(s: *mut c_char) {
+pub unsafe extern "C" fn hostsync_free_string(s: *mut c_char) {
     if !s.is_null() {
         unsafe { drop(CString::from_raw(s)) };
     }

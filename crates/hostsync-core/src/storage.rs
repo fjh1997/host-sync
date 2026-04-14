@@ -52,7 +52,7 @@ pub fn load_servers() -> Vec<Server> {
 
 pub fn save_servers(servers: &[Server]) -> std::io::Result<()> {
     ensure_dir()?;
-    let json = serde_json::to_string(servers).map_err(|e| std::io::Error::other(e))?;
+    let json = serde_json::to_string(servers).map_err(std::io::Error::other)?;
     let key = get_encryption_key();
     let encrypted = crypto::encrypt(&json, &key);
     std::fs::write(servers_path(), encrypted)
@@ -88,7 +88,7 @@ pub fn load_github_state() -> GithubState {
 
 pub fn save_github_state(state: &GithubState) -> std::io::Result<()> {
     ensure_dir()?;
-    let json = serde_json::to_string_pretty(state).map_err(|e| std::io::Error::other(e))?;
+    let json = serde_json::to_string_pretty(state).map_err(std::io::Error::other)?;
     std::fs::write(token_path(), json)
 }
 

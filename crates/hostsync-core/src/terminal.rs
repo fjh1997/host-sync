@@ -7,7 +7,6 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        // Try Windows Terminal first, fallback to cmd
         let wt = Command::new("cmd")
             .args(["/c", "start", "wt", "ssh"])
             .args(&ssh_args)
@@ -20,7 +19,7 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
             .args(&ssh_args)
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
@@ -34,7 +33,7 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
             .args(["-e", &script])
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
@@ -60,7 +59,7 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
                 return Ok(());
             }
         }
-        return Err("no terminal emulator found".to_string());
+        Err("no terminal emulator found".to_string())
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
