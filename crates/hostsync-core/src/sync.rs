@@ -45,12 +45,9 @@ async fn find_remote_gist(client: &Client, token: &str) -> Result<Option<String>
 /// If `passphrase` is provided, it will be saved locally and used as the encryption key.
 /// Always queries remote to find existing gist; creates a new one if none exists.
 pub async fn upload(passphrase: Option<&str>) -> Result<(), String> {
-    // If a new passphrase is provided, save it and re-encrypt local data
+    // If a new passphrase is provided, save it locally
     if let Some(pp) = passphrase {
         storage::save_sync_passphrase(pp).map_err(|e| e.to_string())?;
-        // Re-encrypt existing servers with the new passphrase
-        let servers = storage::load_servers();
-        storage::save_servers(&servers).map_err(|e| e.to_string())?;
     }
 
     // Require passphrase to be set before uploading

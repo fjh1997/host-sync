@@ -548,11 +548,16 @@ impl App {
                 if let Screen::SyncPassphrase { next_action, .. } = &self.screen {
                     match next_action {
                         PassphraseAction::Upload => {
+                            // Save passphrase and re-encrypt in-memory servers
+                            // BEFORE calling upload, so disk data uses the new key
+                            let servers = self.servers.clone();
+                            let _ = storage::save_sync_passphrase(&pp);
+                            let _ = storage::save_servers(&servers);
                             self.screen = Screen::Home;
                             self.syncing = true;
                             self.status_msg = "Uploading...".into();
                             return Task::perform(
-                                async move { hostsync_core::sync::upload(Some(&pp)).await },
+                                async move { hostsync_core::sync::upload(None).await },
                                 Msg::SyncUploadDone,
                             );
                         }
