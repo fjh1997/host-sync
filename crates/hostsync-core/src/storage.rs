@@ -38,6 +38,12 @@ pub fn get_encryption_key() -> String {
     key
 }
 
+/// Sets the encryption key (used when syncing key from cloud).
+pub fn set_encryption_key(key: &str) -> std::io::Result<()> {
+    ensure_dir()?;
+    std::fs::write(key_path(), key.trim())
+}
+
 pub fn load_servers() -> Vec<Server> {
     let encrypted = match std::fs::read_to_string(servers_path()) {
         Ok(s) if !s.trim().is_empty() => s,
