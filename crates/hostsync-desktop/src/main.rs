@@ -73,7 +73,11 @@ enum Msg {
     FormAuthKey,
     FormPassword(String),
     FormIdentityFile(String),
+    FormBrowseIdentityFile,
+    FormBrowseIdentityFileDone(Option<String>),
     FormPrivateKey(String),
+    FormBrowsePrivateKey,
+    FormBrowsePrivateKeyDone(Option<(String, String)>), // (path, content)
     FormPassphrase(String),
     FormNotes(String),
     FormSave,
@@ -326,7 +330,52 @@ impl App {
             }
             Msg::FormPassword(s) => self.form_password = s,
             Msg::FormIdentityFile(s) => self.form_identity_file = s,
+            Msg::FormBrowseIdentityFile => {
+                return Task::perform(
+                    async {
+                        let file = rfd::AsyncFileDialog::new()
+                            .set_title("Select SSH Key File")
+                            .add_filter("All Files", &["*"])
+                            .pick_file()
+                            .await;
+                        file.map(|f| f.path().to_string_lossy().to_string())
+                    },
+                    Msg::FormBrowseIdentityFileDone,
+                );
+            }
+            Msg::FormBrowseIdentityFileDone(path) => {
+                if let Some(p) = path {
+                    self.form_identity_file = p;
+                }
+            }
             Msg::FormPrivateKey(s) => self.form_private_key = s,
+            Msg::FormBrowsePrivateKey => {
+                return Task::perform(
+                    async {
+                        let file = rfd::AsyncFileDialog::new()
+                            .set_title("Select Private Key File")
+                            .add_filter("All Files", &["*"])
+                            .pick_file()
+                            .await;
+                        if let Some(f) = file {
+                            let path = f.path().to_string_lossy().to_string();
+                            match tokio::fs::read_to_string(f.path()).await {
+                                Ok(content) => Some((path, content)),
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    Msg::FormBrowsePrivateKeyDone,
+                );
+            }
+            Msg::FormBrowsePrivateKeyDone(result) => {
+                if let Some((path, content)) = result {
+                    self.form_identity_file = path;
+                    self.form_private_key = content;
+                }
+            }
             Msg::FormPassphrase(s) => self.form_passphrase = s,
             Msg::FormNotes(s) => self.form_notes = s,
             Msg::FormSave => {

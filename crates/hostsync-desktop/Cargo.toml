@@ -11,7 +11,7 @@ path = "src/main.rs"
 [dependencies]
 hostsync-core = { path = "../hostsync-core" }
 iced = { version = "0.13", features = ["tokio"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs"] }
 rfd = "0.15"
 open = "5"
 arboard = "3"

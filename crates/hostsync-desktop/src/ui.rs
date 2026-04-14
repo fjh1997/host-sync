@@ -211,15 +211,25 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
         fields = fields
             .push(text("IdentityFile (path)").size(13))
             .push(
-                text_input("~/.ssh/id_rsa", &app.form_identity_file)
-                    .on_input(Msg::FormIdentityFile)
-                    .padding(8),
+                row![
+                    text_input("~/.ssh/id_rsa", &app.form_identity_file)
+                        .on_input(Msg::FormIdentityFile)
+                        .padding(8),
+                    button("Browse").on_press(Msg::FormBrowseIdentityFile),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
             )
             .push(text("Private Key Content (optional)").size(13))
             .push(
-                text_input("-----BEGIN OPENSSH PRIVATE KEY-----", &app.form_private_key)
-                    .on_input(Msg::FormPrivateKey)
-                    .padding(8),
+                row![
+                    text_input("-----BEGIN OPENSSH PRIVATE KEY-----", &app.form_private_key)
+                        .on_input(Msg::FormPrivateKey)
+                        .padding(8),
+                    button("Load File").on_press(Msg::FormBrowsePrivateKey),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
             )
             .push(text("Key Passphrase (optional)").size(13))
             .push(
