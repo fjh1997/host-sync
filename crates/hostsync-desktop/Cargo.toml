@@ -1,0 +1,19 @@
+[package]
+name = "hostsync-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hostsync"
+path = "src/main.rs"
+
+[dependencies]
+hostsync-core = { path = "../hostsync-core" }
+iced = { version = "0.13", features = ["tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+rfd = "0.15"
+open = "5"
+arboard = "3"
+chrono = "0.4"
+uuid = { version = "1", features = ["v4"] }

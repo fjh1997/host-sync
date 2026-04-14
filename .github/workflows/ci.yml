@@ -9,63 +9,19 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
-    name: Analyze & Test
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
-
-  build-android:
-    name: Build Android
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: flutter build apk --release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-
-  build-ios:
-    name: Build iOS
-    needs: test
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: flutter build ios --release --no-codesign
-      - name: Create IPA
-        run: |
-          cd build/ios/iphoneos
-          mkdir Payload
-          cp -r Runner.app Payload/
-          zip -r ../../../HostSync.ipa Payload
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-ipa
-          path: HostSync.ipa
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace -- -D warnings
 
   build-linux:
     name: Build Linux
@@ -73,21 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
-      - run: flutter pub get
-      - run: flutter build linux --release
-      - name: Archive
-        run: |
-          cd build/linux/x64/release/bundle
-          tar czf ../../../../../HostSync-linux-x64.tar.gz .
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p hostsync-desktop
+      - run: strip target/release/hostsync
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-x64
-          path: HostSync-linux-x64.tar.gz
+          name: hostsync-linux-x64
+          path: target/release/hostsync
 
   build-windows:
     name: Build Windows
@@ -95,18 +44,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: flutter build windows --release
-      - name: Archive
-        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath HostSync-windows-x64.zip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p hostsync-desktop
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-x64
-          path: HostSync-windows-x64.zip
+          name: hostsync-windows-x64
+          path: target/release/hostsync.exe
 
   build-macos:
     name: Build macOS
@@ -114,37 +58,62 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - run: flutter pub get
-      - run: flutter build macos --release
-      - name: Archive
-        run: |
-          cd build/macos/Build/Products/Release
-          zip -r ../../../../../HostSync-macos.zip HostSync.app
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p hostsync-desktop
+      - run: strip target/release/hostsync
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-app
-          path: HostSync-macos.zip
+          name: hostsync-macos
+          path: target/release/hostsync
+
+  build-android:
+    name: Build Android (.so)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-ndk
+      - run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 build --release -p hostsync-core
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-jniLibs
+          path: target/aarch64-linux-android/release/libhostsync_core.so
+
+  build-ios:
+    name: Build iOS (.a)
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --target aarch64-apple-ios -p hostsync-core
+      - run: cargo build --release --target aarch64-apple-ios-sim -p hostsync-core
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-static-lib
+          path: target/aarch64-apple-ios/release/libhostsync_core.a
 
   pre-release:
-    name: Upload Pre-release
-    needs: [build-android, build-ios, build-linux, build-windows, build-macos]
+    name: Pre-release
+    needs: [build-linux, build-windows, build-macos, build-android, build-ios]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Generate tag
         id: tag
         run: echo "tag=nightly-$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
-
       - name: Create Pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -153,8 +122,6 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            artifacts/android-apk/app-release.apk
-            artifacts/ios-ipa/HostSync.ipa
-            artifacts/linux-x64/HostSync-linux-x64.tar.gz
-            artifacts/windows-x64/HostSync-windows-x64.zip
-            artifacts/macos-app/HostSync-macos.zip
+            artifacts/hostsync-linux-x64/hostsync
+            artifacts/hostsync-windows-x64/hostsync.exe
+            artifacts/hostsync-macos/hostsync
