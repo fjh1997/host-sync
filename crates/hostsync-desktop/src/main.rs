@@ -423,8 +423,17 @@ impl App {
                     }
                 }
                 let _ = storage::save_servers(&self.servers);
-                self.status_msg = format!("Imported {} host(s)", added);
                 self.screen = Screen::Home;
+                if added > 0 {
+                    self.syncing = true;
+                    self.status_msg = format!("Imported {} host(s), syncing...", added);
+                    return Task::perform(
+                        async { hostsync_core::sync::upload().await },
+                        Msg::SyncUploadDone,
+                    );
+                } else {
+                    self.status_msg = "No new hosts to import".into();
+                }
             }
             Msg::ImportPasteConfirm => {
                 let imported = hostsync_core::ssh_config::parse(&self.paste_text);
@@ -438,8 +447,17 @@ impl App {
                     }
                 }
                 let _ = storage::save_servers(&self.servers);
-                self.status_msg = format!("Imported {} host(s)", added);
                 self.screen = Screen::Home;
+                if added > 0 {
+                    self.syncing = true;
+                    self.status_msg = format!("Imported {} host(s), syncing...", added);
+                    return Task::perform(
+                        async { hostsync_core::sync::upload().await },
+                        Msg::SyncUploadDone,
+                    );
+                } else {
+                    self.status_msg = "No new hosts to import".into();
+                }
             }
             Msg::ExportClipboard => {
                 let config = hostsync_core::ssh_config::generate(&self.servers);
