@@ -60,11 +60,13 @@ Download from [Releases](https://github.com/fjh1997/host-sync/releases):
 
 从 [Releases](https://github.com/fjh1997/host-sync/releases) 下载：
 
-| Platform / 平台 | File / 文件 | Size / 大小 |
+| Platform / 平台 | x86_64 | ARM64 |
 |----------|------|------|
-| Windows  | `hostsync-windows-x64.zip` | ~5MB |
-| Linux    | `hostsync-linux-x64.tar.gz` | ~5MB |
-| macOS    | `hostsync-macos.zip` | ~5MB |
+| Windows  | `hostsync-windows-x64.zip` | `hostsync-windows-arm64.zip` |
+| Linux    | `hostsync-linux-x64.tar.gz` | `hostsync-linux-arm64.tar.gz` |
+| macOS    | `hostsync-macos-x64.tar.gz` | `hostsync-macos-arm64.tar.gz` |
+| Android  | `android-jniLibs.zip` (x86, x86_64, armeabi-v7a, arm64-v8a) ||
+| iOS      | `libhostsync_core.a` (arm64) | sim: universal (arm64 + x86_64) |
 
 Single binary, no installation needed. Just run `hostsync`.
 
@@ -203,6 +205,11 @@ readme里面要有中文翻译，About里面也要
 #### Prompt 6 — Emphasize SSH key management / 强调 SSH 密钥管理
 ```
 在readme和about里面重点强调一下ssh key的管理和同步
+```
+
+#### Prompt 7 — Dual architecture support / 双架构支持
+```
+所有端要同时支持x86和arm架构
 ```
 
 ## License / 许可证

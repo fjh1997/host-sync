@@ -24,70 +24,146 @@ jobs:
       - run: cargo test --workspace
       - run: cargo clippy --workspace -- -D warnings
 
-  build-linux:
-    name: Build Linux
+  build-desktop:
+    name: Desktop ${{ matrix.name }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: hostsync
+            cross: false
+          - name: linux-arm64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: hostsync
+            cross: true
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: hostsync.exe
+            cross: false
+          - name: windows-arm64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact: hostsync.exe
+            cross: false
+          - name: macos-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: hostsync
+            cross: false
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: hostsync
+            cross: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p hostsync-desktop
+
+      - name: Strip (Unix)
+        if: runner.os != 'Windows' && !matrix.cross
+        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact }}
+
+      - name: Strip (Linux cross)
+        if: matrix.cross
+        run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: tar czf hostsync-${{ matrix.name }}.tar.gz -C target/${{ matrix.target }}/release ${{ matrix.artifact }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path target/${{ matrix.target }}/release/${{ matrix.artifact }} -DestinationPath hostsync-${{ matrix.name }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hostsync-${{ matrix.name }}
+          path: hostsync-${{ matrix.name }}.*
+
+  build-android:
+    name: Android (.so)
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p hostsync-desktop
-      - run: strip target/release/hostsync && tar czf hostsync-linux-x64.tar.gz -C target/release hostsync
+        with:
+          key: android
+      - run: cargo install cargo-ndk
+      - run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 build --release -p hostsync-core
+      - name: Collect .so files
+        run: |
+          mkdir -p jniLibs/arm64-v8a jniLibs/armeabi-v7a jniLibs/x86_64 jniLibs/x86
+          cp target/aarch64-linux-android/release/libhostsync_core.so jniLibs/arm64-v8a/
+          cp target/armv7-linux-androideabi/release/libhostsync_core.so jniLibs/armeabi-v7a/
+          cp target/x86_64-linux-android/release/libhostsync_core.so jniLibs/x86_64/
+          cp target/i686-linux-android/release/libhostsync_core.so jniLibs/x86/
+          zip -r android-jniLibs.zip jniLibs/
       - uses: actions/upload-artifact@v4
         with:
-          name: hostsync-linux-x64
-          path: hostsync-linux-x64.tar.gz
-
-  build-windows:
-    name: Build Windows
-    needs: test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p hostsync-desktop
-      - run: Compress-Archive -Path target\release\hostsync.exe -DestinationPath hostsync-windows-x64.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hostsync-windows-x64
-          path: hostsync-windows-x64.zip
-
-  build-macos:
-    name: Build macOS
-    needs: test
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p hostsync-desktop
-      - run: strip target/release/hostsync && zip hostsync-macos.zip target/release/hostsync
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hostsync-macos
-          path: hostsync-macos.zip
+          name: android-jniLibs
+          path: android-jniLibs.zip
 
   build-ios:
-    name: Build iOS
+    name: iOS (.a)
     needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --target aarch64-apple-ios -p hostsync-core
+        with:
+          key: ios
+      - name: Build all iOS targets
+        run: |
+          cargo build --release --target aarch64-apple-ios -p hostsync-core
+          cargo build --release --target aarch64-apple-ios-sim -p hostsync-core
+          cargo build --release --target x86_64-apple-ios -p hostsync-core
+      - name: Create universal sim library
+        run: |
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libhostsync_core.a \
+            target/x86_64-apple-ios/release/libhostsync_core.a \
+            -output libhostsync_core-ios-sim-universal.a
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-static-lib
+          name: ios-device-arm64
           path: target/aarch64-apple-ios/release/libhostsync_core.a
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-universal
+          path: libhostsync_core-ios-sim-universal.a
 
   release:
     name: Create Release
-    needs: [build-linux, build-windows, build-macos, build-ios]
+    needs: [build-desktop, build-android, build-ios]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,9 +177,14 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/hostsync-linux-x64/hostsync-linux-x64.tar.gz
+            artifacts/hostsync-linux-arm64/hostsync-linux-arm64.tar.gz
             artifacts/hostsync-windows-x64/hostsync-windows-x64.zip
-            artifacts/hostsync-macos/hostsync-macos.zip
-            artifacts/ios-static-lib/libhostsync_core.a
+            artifacts/hostsync-windows-arm64/hostsync-windows-arm64.zip
+            artifacts/hostsync-macos-x64/hostsync-macos-x64.tar.gz
+            artifacts/hostsync-macos-arm64/hostsync-macos-arm64.tar.gz
+            artifacts/android-jniLibs/android-jniLibs.zip
+            artifacts/ios-device-arm64/libhostsync_core.a
+            artifacts/ios-sim-universal/libhostsync_core-ios-sim-universal.a
 
   update-altstore:
     name: Update AltStore Source
@@ -124,8 +205,8 @@ jobs:
           {
             "name": "HostSync",
             "identifier": "com.hostsync.altstore",
-            "subtitle": "Linux Server Manager",
-            "description": "Cross-platform Linux server manager with SSH config compatibility.",
+            "subtitle": "SSH Key Manager & Server Sync",
+            "description": "Securely manage, sync and connect to Linux servers. SSH keys encrypted across all devices.",
             "iconURL": "https://raw.githubusercontent.com/${REPO}/main/altstore/icon.png",
             "website": "https://github.com/${REPO}",
             "tintColor": "#607D8B",
@@ -133,8 +214,8 @@ jobs:
               "name": "HostSync",
               "bundleIdentifier": "com.hostsync.app",
               "developerName": "fjh1997",
-              "subtitle": "Linux Server Manager",
-              "localizedDescription": "Manage your Linux servers across all devices.",
+              "subtitle": "SSH Key Manager & Server Sync",
+              "localizedDescription": "Manage your Linux servers and SSH keys across all devices. AES-256 encrypted sync.",
               "iconURL": "https://raw.githubusercontent.com/${REPO}/main/altstore/icon.png",
               "tintColor": "#607D8B",
               "versions": [{
