@@ -13,8 +13,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      android: ${{ steps.filter.outputs.android }}
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'crates/hostsync-core/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            desktop:
+              - 'crates/hostsync-desktop/**'
+            android:
+              - 'mobile/android/**'
+            ios:
+              - 'mobile/ios/**'
+
   test:
     name: Test
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.desktop == 'true' || needs.changes.outputs.android == 'true' || needs.changes.outputs.ios == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +53,8 @@ jobs:
 
   build-desktop:
     name: Desktop ${{ matrix.name }}
-    needs: test
+    needs: [changes, test]
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.desktop == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -119,7 +148,8 @@ jobs:
 
   build-android:
     name: Android APK
-    needs: test
+    needs: [changes, test]
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -165,7 +195,8 @@ jobs:
 
   build-ios:
     name: iOS IPA
-    needs: test
+    needs: [changes, test]
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.ios == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -228,9 +259,12 @@ jobs:
 
   pre-release:
     name: Pre-release
-    needs: [build-desktop, build-android, build-ios]
+    needs: [changes, build-desktop, build-android, build-ios]
+    if: |
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      (needs.build-desktop.result == 'success' || needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
