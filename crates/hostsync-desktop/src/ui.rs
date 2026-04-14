@@ -349,3 +349,55 @@ pub fn proxy_view(proxy_input: &str) -> Element<'_, Msg> {
 
     container(content).width(Length::Fill).height(Length::Fill).into()
 }
+
+pub fn passphrase_view<'a>(
+    passphrase_input: &'a str,
+    is_new: bool,
+    status_msg: &'a str,
+) -> Element<'a, Msg> {
+    let title = if is_new {
+        "Set Sync Passphrase"
+    } else {
+        "Enter Sync Passphrase"
+    };
+    let description = if is_new {
+        "Set a passphrase to encrypt your server data.\nYou'll need this same passphrase on other devices."
+    } else {
+        "Enter the sync passphrase you set on your other device."
+    };
+
+    let mut content = column![
+        Space::with_height(60),
+        text(title).size(24),
+        Space::with_height(8),
+        text(description).size(13),
+        Space::with_height(20),
+        text("Sync Passphrase").size(13),
+        text_input("Enter passphrase...", passphrase_input)
+            .on_input(Msg::SyncPassphraseInput)
+            .on_submit(Msg::SyncPassphraseConfirm)
+            .padding(10)
+            .secure(true),
+        Space::with_height(16),
+        row![
+            button("Cancel").on_press(Msg::GoHome),
+            horizontal_space(),
+            button(text("Confirm").size(14))
+                .padding([8, 24])
+                .on_press(Msg::SyncPassphraseConfirm),
+        ]
+        .spacing(8),
+    ]
+    .spacing(6)
+    .align_x(Alignment::Center)
+    .max_width(400);
+
+    if !status_msg.is_empty() {
+        content = content.push(Space::with_height(8)).push(text(status_msg).size(12));
+    }
+
+    container(content)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .into()
+}

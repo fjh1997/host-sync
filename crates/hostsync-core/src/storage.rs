@@ -16,17 +16,40 @@ fn token_path() -> PathBuf {
     data_dir().join("github.json")
 }
 
+fn sync_passphrase_path() -> PathBuf {
+    data_dir().join("sync_passphrase.txt")
+}
+
 /// Ensures data directory exists.
 fn ensure_dir() -> std::io::Result<()> {
     std::fs::create_dir_all(data_dir())
 }
 
-/// Derives the encryption key from the GitHub OAuth token.
-/// Same account → same token → same key on every device.
+/// Returns the encryption key (sync passphrase).
+/// Requires passphrase to be set; returns empty string otherwise.
 pub fn get_encryption_key() -> String {
-    load_github_state()
-        .token
-        .unwrap_or_default()
+    load_sync_passphrase().unwrap_or_default()
+}
+
+// --- Sync passphrase ---
+
+/// Load the sync passphrase from local storage. Returns None if not set.
+pub fn load_sync_passphrase() -> Option<String> {
+    std::fs::read_to_string(sync_passphrase_path())
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Save the sync passphrase to local storage.
+pub fn save_sync_passphrase(passphrase: &str) -> std::io::Result<()> {
+    ensure_dir()?;
+    std::fs::write(sync_passphrase_path(), passphrase.trim())
+}
+
+/// Check if a sync passphrase has been set.
+pub fn has_sync_passphrase() -> bool {
+    load_sync_passphrase().is_some()
 }
 
 pub fn load_servers() -> Vec<Server> {

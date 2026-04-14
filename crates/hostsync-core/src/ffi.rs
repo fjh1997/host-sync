@@ -62,6 +62,26 @@ pub extern "C" fn hostsync_get_github_username() -> *mut c_char {
     CString::new(name).unwrap().into_raw()
 }
 
+#[no_mangle]
+pub extern "C" fn hostsync_has_sync_passphrase() -> i32 {
+    if storage::has_sync_passphrase() { 1 } else { 0 }
+}
+
+/// # Safety
+/// `passphrase` must be a valid, non-null, NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn hostsync_set_sync_passphrase(passphrase: *const c_char) -> i32 {
+    let c_str = unsafe { CStr::from_ptr(passphrase) };
+    let pp_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    match storage::save_sync_passphrase(pp_str) {
+        Ok(_) => 0,
+        Err(_) => -2,
+    }
+}
+
 /// # Safety
 /// `s` must be a pointer previously returned by a `hostsync_*` function, or null.
 #[no_mangle]

@@ -22,11 +22,15 @@ jobs:
       android: ${{ steps.filter.outputs.android }}
       ios: ${{ steps.filter.outputs.ios }}
       version: ${{ steps.ver.outputs.version }}
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
       - name: Get version
         id: ver
         run: echo "version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')" >> "$GITHUB_OUTPUT"
+      - name: Get short SHA
+        id: sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -137,13 +141,13 @@ jobs:
           mkdir -p dmg-staging
           cp -r HostSync.app dmg-staging/
           ln -s /Applications dmg-staging/Applications
-          hdiutil create -volname "HostSync" -srcfolder dmg-staging -ov -format UDZO "HostSync-${{ needs.changes.outputs.version }}-${{ matrix.name }}.dmg"
+          hdiutil create -volname "HostSync" -srcfolder dmg-staging -ov -format UDZO "HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}-${{ matrix.name }}.dmg"
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
         with:
           name: hostsync-${{ matrix.name }}
-          path: HostSync-${{ needs.changes.outputs.version }}-${{ matrix.name }}.dmg
+          path: HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}-${{ matrix.name }}.dmg
 
       - uses: actions/upload-artifact@v4
         if: runner.os != 'macOS'
@@ -191,12 +195,12 @@ jobs:
           gradle assembleRelease --no-daemon
       - name: Rename APK
         run: |
-          mv mobile/android/app/build/outputs/apk/release/app-release.apk HostSync-${{ needs.changes.outputs.version }}.apk 2>/dev/null || \
-          mv mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk HostSync-${{ needs.changes.outputs.version }}.apk
+          mv mobile/android/app/build/outputs/apk/release/app-release.apk HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}.apk 2>/dev/null || \
+          mv mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: HostSync-${{ needs.changes.outputs.version }}.apk
+          path: HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}.apk
 
   build-ios:
     name: iOS IPA
@@ -243,12 +247,12 @@ jobs:
           cd mobile/ios/build/HostSync.xcarchive/Products/Applications
           mkdir Payload
           cp -r HostSync.app Payload/
-          zip -r ../../../../HostSync-${{ needs.changes.outputs.version }}.ipa Payload
+          zip -r ../../../../HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}.ipa Payload
 
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
-          path: mobile/ios/HostSync-${{ needs.changes.outputs.version }}.ipa
+          path: mobile/ios/HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}.ipa
 
       # Also upload universal sim lib for developers
       - name: Create universal sim library
@@ -281,13 +285,14 @@ jobs:
       - name: Package artifacts
         env:
           VER: ${{ needs.changes.outputs.version }}
+          SHA: ${{ needs.changes.outputs.sha }}
         run: |
           cd artifacts
           for dir in hostsync-linux-*; do
-            [ -d "$dir" ] && chmod +x "$dir/hostsync" && tar czf "HostSync-${VER}-${dir#hostsync-}.tar.gz" -C "$dir" hostsync
+            [ -d "$dir" ] && chmod +x "$dir/hostsync" && tar czf "HostSync-${VER}-${SHA}-${dir#hostsync-}.tar.gz" -C "$dir" hostsync
           done
           for dir in hostsync-windows-*; do
-            [ -d "$dir" ] && (cd "$dir" && zip "../HostSync-${VER}-${dir#hostsync-}.zip" hostsync.exe)
+            [ -d "$dir" ] && (cd "$dir" && zip "../HostSync-${VER}-${SHA}-${dir#hostsync-}.zip" hostsync.exe)
           done
       - name: Create Pre-release
         uses: softprops/action-gh-release@v2
@@ -299,11 +304,11 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            artifacts/HostSync-${{ env.VER }}-linux-x64.tar.gz
-            artifacts/HostSync-${{ env.VER }}-linux-arm64.tar.gz
-            artifacts/HostSync-${{ env.VER }}-windows-x64.zip
-            artifacts/HostSync-${{ env.VER }}-windows-arm64.zip
-            artifacts/hostsync-macos-x64/HostSync-${{ env.VER }}-macos-x64.dmg
-            artifacts/hostsync-macos-arm64/HostSync-${{ env.VER }}-macos-arm64.dmg
-            artifacts/android-apk/HostSync-${{ env.VER }}.apk
-            artifacts/ios-ipa/HostSync-${{ env.VER }}.ipa
+            artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-linux-x64.tar.gz
+            artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-linux-arm64.tar.gz
+            artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-windows-x64.zip
+            artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-windows-arm64.zip
+            artifacts/hostsync-macos-x64/HostSync-${{ env.VER }}-${{ env.SHA }}-macos-x64.dmg
+            artifacts/hostsync-macos-arm64/HostSync-${{ env.VER }}-${{ env.SHA }}-macos-arm64.dmg
+            artifacts/android-apk/HostSync-${{ env.VER }}-${{ env.SHA }}.apk
+            artifacts/ios-ipa/HostSync-${{ env.VER }}-${{ env.SHA }}.ipa

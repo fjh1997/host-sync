@@ -19,6 +19,15 @@ enum Screen {
     AddEdit(Option<usize>),
     ImportPaste,
     ProxySettings { from_login: bool },
+    /// Prompt user to set or enter a sync passphrase.
+    /// `is_new` = true means first-time setup (set); false means entering existing passphrase.
+    SyncPassphrase { is_new: bool, next_action: PassphraseAction },
+}
+
+#[derive(Debug, Clone)]
+enum PassphraseAction {
+    Upload,
+    Download,
 }
 
 struct App {
@@ -46,6 +55,8 @@ struct App {
     logging_in: bool,
     // Proxy
     proxy_input: String,
+    // Sync passphrase
+    sync_passphrase_input: String,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +106,9 @@ enum Msg {
     GoProxy,
     ProxyInput(String),
     ProxySave,
+    // Sync passphrase
+    SyncPassphraseInput(String),
+    SyncPassphraseConfirm,
     // Misc
     Noop,
 }
@@ -106,7 +120,7 @@ impl App {
         let servers = storage::load_servers();
         let task = if logged_in {
             Task::perform(
-                async { hostsync_core::sync::download().await },
+                async { hostsync_core::sync::download(None).await },
                 Msg::SyncDownloadDone,
             )
         } else {
@@ -133,6 +147,7 @@ impl App {
                 device_user_code: String::new(),
                 logging_in: false,
                 proxy_input: storage::load_proxy().unwrap_or_default(),
+                sync_passphrase_input: String::new(),
             },
             task,
         )
@@ -303,7 +318,7 @@ impl App {
                         self.status_msg = "Syncing from cloud...".into();
                         self.syncing = true;
                         return Task::perform(
-                            async { hostsync_core::sync::download().await },
+                            async { hostsync_core::sync::download(None).await },
                             Msg::SyncDownloadDone,
                         );
                     }
@@ -327,7 +342,7 @@ impl App {
                 self.syncing = true;
                 self.status_msg = "Syncing...".into();
                 return Task::perform(
-                    async { hostsync_core::sync::upload().await },
+                    async { hostsync_core::sync::upload(None).await },
                     Msg::SyncUploadDone,
                 );
             }
@@ -379,38 +394,63 @@ impl App {
                     self.syncing = true;
                     self.status_msg = "Syncing...".into();
                     return Task::perform(
-                        async { hostsync_core::sync::upload().await },
+                        async { hostsync_core::sync::upload(None).await },
                         Msg::SyncUploadDone,
                     );
                 }
             }
             Msg::SyncUpload => {
+                if !storage::has_sync_passphrase() {
+                    self.sync_passphrase_input.clear();
+                    self.screen = Screen::SyncPassphrase {
+                        is_new: true,
+                        next_action: PassphraseAction::Upload,
+                    };
+                    return Task::none();
+                }
                 self.syncing = true;
+                self.status_msg = "Uploading...".into();
                 return Task::perform(
-                    async { hostsync_core::sync::upload().await },
+                    async { hostsync_core::sync::upload(None).await },
                     Msg::SyncUploadDone,
                 );
             }
             Msg::SyncUploadDone(r) => {
                 self.syncing = false;
-                self.status_msg = match r {
-                    Ok(_) => "Uploaded to cloud".into(),
-                    Err(e) => format!("Upload failed: {}", e),
-                };
+                match &r {
+                    Ok(_) => self.status_msg = "Uploaded to cloud".into(),
+                    Err(e) if e == hostsync_core::sync::ERR_NEED_PASSPHRASE => {
+                        self.sync_passphrase_input.clear();
+                        self.screen = Screen::SyncPassphrase {
+                            is_new: true,
+                            next_action: PassphraseAction::Upload,
+                        };
+                    }
+                    Err(e) => self.status_msg = format!("Upload failed: {}", e),
+                }
             }
             Msg::SyncDownload => {
                 self.syncing = true;
+                self.status_msg = "Downloading...".into();
                 return Task::perform(
-                    async { hostsync_core::sync::download().await },
+                    async { hostsync_core::sync::download(None).await },
                     Msg::SyncDownloadDone,
                 );
             }
             Msg::SyncDownloadDone(r) => {
                 self.syncing = false;
-                match r {
+                match &r {
                     Ok(_) => {
                         self.servers = storage::load_servers();
                         self.status_msg = "Downloaded from cloud".into();
+                    }
+                    Err(e) if e == hostsync_core::sync::ERR_NEED_PASSPHRASE => {
+                        self.sync_passphrase_input.clear();
+                        let is_new = !storage::has_sync_passphrase();
+                        self.screen = Screen::SyncPassphrase {
+                            is_new,
+                            next_action: PassphraseAction::Download,
+                        };
                     }
                     Err(e) => self.status_msg = format!("Download failed: {}", e),
                 }
@@ -437,7 +477,7 @@ impl App {
                     self.syncing = true;
                     self.status_msg = format!("Imported {} host(s), syncing...", added);
                     return Task::perform(
-                        async { hostsync_core::sync::upload().await },
+                        async { hostsync_core::sync::upload(None).await },
                         Msg::SyncUploadDone,
                     );
                 } else {
@@ -461,7 +501,7 @@ impl App {
                     self.syncing = true;
                     self.status_msg = format!("Imported {} host(s), syncing...", added);
                     return Task::perform(
-                        async { hostsync_core::sync::upload().await },
+                        async { hostsync_core::sync::upload(None).await },
                         Msg::SyncUploadDone,
                     );
                 } else {
@@ -498,6 +538,36 @@ impl App {
                 let from_login = matches!(self.screen, Screen::ProxySettings { from_login: true });
                 self.screen = if from_login { Screen::Login } else { Screen::Home };
             }
+            Msg::SyncPassphraseInput(s) => self.sync_passphrase_input = s,
+            Msg::SyncPassphraseConfirm => {
+                if self.sync_passphrase_input.trim().is_empty() {
+                    self.status_msg = "Passphrase cannot be empty".into();
+                    return Task::none();
+                }
+                let pp = self.sync_passphrase_input.clone();
+                if let Screen::SyncPassphrase { next_action, .. } = &self.screen {
+                    match next_action {
+                        PassphraseAction::Upload => {
+                            self.screen = Screen::Home;
+                            self.syncing = true;
+                            self.status_msg = "Uploading...".into();
+                            return Task::perform(
+                                async move { hostsync_core::sync::upload(Some(&pp)).await },
+                                Msg::SyncUploadDone,
+                            );
+                        }
+                        PassphraseAction::Download => {
+                            self.screen = Screen::Home;
+                            self.syncing = true;
+                            self.status_msg = "Downloading...".into();
+                            return Task::perform(
+                                async move { hostsync_core::sync::download(Some(&pp)).await },
+                                Msg::SyncDownloadDone,
+                            );
+                        }
+                    }
+                }
+            }
             Msg::Noop => {}
         }
         Task::none()
@@ -510,6 +580,9 @@ impl App {
             Screen::AddEdit(edit_idx) => ui::form_view(self, *edit_idx),
             Screen::ImportPaste => ui::paste_view(&self.paste_text),
             Screen::ProxySettings { .. } => ui::proxy_view(&self.proxy_input),
+            Screen::SyncPassphrase { is_new, .. } => {
+                ui::passphrase_view(&self.sync_passphrase_input, *is_new, &self.status_msg)
+            }
         }
     }
 }

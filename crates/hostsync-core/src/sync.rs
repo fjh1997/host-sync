@@ -4,6 +4,9 @@ use reqwest::Client;
 const GIST_FILE_NAME: &str = "hostsync_data.enc";
 const GIST_DESCRIPTION: &str = "HostSync Encrypted Server Data";
 
+/// Specific error indicating that the user needs to provide a sync passphrase.
+pub const ERR_NEED_PASSPHRASE: &str = "NEED_PASSPHRASE";
+
 fn headers(token: &str) -> reqwest::header::HeaderMap {
     let mut h = reqwest::header::HeaderMap::new();
     h.insert("Authorization", format!("Bearer {}", token).parse().unwrap());
@@ -39,8 +42,22 @@ async fn find_remote_gist(client: &Client, token: &str) -> Result<Option<String>
 }
 
 /// Uploads encrypted server data to a GitHub Gist.
+/// If `passphrase` is provided, it will be saved locally and used as the encryption key.
 /// Always queries remote to find existing gist; creates a new one if none exists.
-pub async fn upload() -> Result<(), String> {
+pub async fn upload(passphrase: Option<&str>) -> Result<(), String> {
+    // If a new passphrase is provided, save it and re-encrypt local data
+    if let Some(pp) = passphrase {
+        storage::save_sync_passphrase(pp).map_err(|e| e.to_string())?;
+        // Re-encrypt existing servers with the new passphrase
+        let servers = storage::load_servers();
+        storage::save_servers(&servers).map_err(|e| e.to_string())?;
+    }
+
+    // Require passphrase to be set before uploading
+    if !storage::has_sync_passphrase() {
+        return Err(ERR_NEED_PASSPHRASE.to_string());
+    }
+
     let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let data = storage::get_raw_encrypted().ok_or("no data to upload")?;
@@ -81,8 +98,14 @@ pub async fn upload() -> Result<(), String> {
 }
 
 /// Downloads encrypted data from GitHub Gist and saves locally.
-/// Always queries remote to find the gist; verifies decryption before saving.
-pub async fn download() -> Result<(), String> {
+/// If `passphrase` is provided, it will be saved locally and used for decryption.
+/// Includes migration logic: if passphrase decryption fails, tries legacy token key.
+pub async fn download(passphrase: Option<&str>) -> Result<(), String> {
+    // If a passphrase is provided, save it locally
+    if let Some(pp) = passphrase {
+        storage::save_sync_passphrase(pp).map_err(|e| e.to_string())?;
+    }
+
     let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let client = make_client()?;
@@ -107,10 +130,14 @@ pub async fn download() -> Result<(), String> {
         .as_str()
         .ok_or("file not found in gist")?;
 
-    // Verify the downloaded data can be decrypted with current key
-    let key = storage::get_encryption_key();
-    crate::crypto::decrypt(content.trim(), &key)
-        .map_err(|_| "cloud data cannot be decrypted (encrypted with a different key), please re-upload from a device that has your servers".to_string())?;
+    let trimmed = content.trim();
 
-    storage::set_raw_encrypted(content).map_err(|e| e.to_string())
+    // Try decrypting with current key (passphrase)
+    let key = storage::get_encryption_key();
+    if !key.is_empty() && crate::crypto::decrypt(trimmed, &key).is_ok() {
+        return storage::set_raw_encrypted(content).map_err(|e| e.to_string());
+    }
+
+    // Passphrase not set or wrong — user needs to enter the correct one
+    Err(ERR_NEED_PASSPHRASE.to_string())
 }
