@@ -88,7 +88,30 @@ jobs:
         if: matrix.cross
         run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact }}
 
+      - name: Create macOS .app bundle
+        if: runner.os == 'macOS'
+        run: |
+          APP="HostSync.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} "$APP/Contents/MacOS/hostsync"
+          cp crates/hostsync-desktop/Info.plist "$APP/Contents/"
+
+      - name: Create macOS .dmg
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg-staging
+          cp -r HostSync.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "HostSync" -srcfolder dmg-staging -ov -format UDZO "HostSync-${{ matrix.name }}.dmg"
+
       - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: hostsync-${{ matrix.name }}
+          path: HostSync-${{ matrix.name }}.dmg
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os != 'macOS'
         with:
           name: hostsync-${{ matrix.name }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
@@ -218,7 +241,7 @@ jobs:
       - name: Package artifacts
         run: |
           cd artifacts
-          for dir in hostsync-linux-* hostsync-macos-*; do
+          for dir in hostsync-linux-*; do
             [ -d "$dir" ] && chmod +x "$dir/hostsync" && tar czf "${dir}.tar.gz" -C "$dir" hostsync
           done
           for dir in hostsync-windows-*; do
@@ -236,7 +259,7 @@ jobs:
             artifacts/hostsync-linux-arm64.tar.gz
             artifacts/hostsync-windows-x64.zip
             artifacts/hostsync-windows-arm64.zip
-            artifacts/hostsync-macos-x64.tar.gz
-            artifacts/hostsync-macos-arm64.tar.gz
+            artifacts/hostsync-macos-x64/HostSync-macos-x64.dmg
+            artifacts/hostsync-macos-arm64/HostSync-macos-arm64.dmg
             artifacts/android-apk/HostSync.apk
             artifacts/ios-ipa/HostSync.ipa

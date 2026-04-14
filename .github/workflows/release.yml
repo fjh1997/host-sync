@@ -89,8 +89,24 @@ jobs:
         if: matrix.cross
         run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact }}
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Create macOS .app bundle
+        if: runner.os == 'macOS'
+        run: |
+          APP="HostSync.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} "$APP/Contents/MacOS/hostsync"
+          cp crates/hostsync-desktop/Info.plist "$APP/Contents/"
+
+      - name: Create macOS .dmg
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg-staging
+          cp -r HostSync.app dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "HostSync" -srcfolder dmg-staging -ov -format UDZO "HostSync-${{ matrix.name }}.dmg"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: tar czf hostsync-${{ matrix.name }}.tar.gz -C target/${{ matrix.target }}/release ${{ matrix.artifact }}
 
       - name: Package (Windows)
@@ -98,6 +114,13 @@ jobs:
         run: Compress-Archive -Path target/${{ matrix.target }}/release/${{ matrix.artifact }} -DestinationPath hostsync-${{ matrix.name }}.zip
 
       - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: hostsync-${{ matrix.name }}
+          path: HostSync-${{ matrix.name }}.dmg
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os != 'macOS'
         with:
           name: hostsync-${{ matrix.name }}
           path: hostsync-${{ matrix.name }}.*
@@ -203,8 +226,8 @@ jobs:
             artifacts/hostsync-linux-arm64/hostsync-linux-arm64.tar.gz
             artifacts/hostsync-windows-x64/hostsync-windows-x64.zip
             artifacts/hostsync-windows-arm64/hostsync-windows-arm64.zip
-            artifacts/hostsync-macos-x64/hostsync-macos-x64.tar.gz
-            artifacts/hostsync-macos-arm64/hostsync-macos-arm64.tar.gz
+            artifacts/hostsync-macos-x64/HostSync-macos-x64.dmg
+            artifacts/hostsync-macos-arm64/HostSync-macos-arm64.dmg
             artifacts/android-apk/HostSync.apk
             artifacts/ios-ipa/HostSync.ipa
 
