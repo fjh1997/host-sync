@@ -8,7 +8,7 @@ pub fn login_view<'a>(status: &'a str, user_code: &'a str, logging_in: bool) -> 
     let mut content = column![
         Space::with_height(80),
         text("HostSync").size(40),
-        text(format!("v{}", env!("CARGO_PKG_VERSION"))).size(12),
+        text(format!("v{} ({})", env!("CARGO_PKG_VERSION"), env!("HOSTSYNC_BUILD"))).size(12),
         text("Manage your Linux servers & SSH keys").size(14),
         Space::with_height(30),
     ]
@@ -55,7 +55,7 @@ pub fn home_view(app: &App) -> Element<'_, Msg> {
     // Toolbar
     let toolbar = row![
         text("HostSync").size(22),
-        text(format!("v{}", env!("CARGO_PKG_VERSION"))).size(11),
+        text(format!("v{} ({})", env!("CARGO_PKG_VERSION"), env!("HOSTSYNC_BUILD"))).size(11),
         horizontal_space(),
         button("Upload").on_press(if app.syncing { Msg::Noop } else { Msg::SyncUpload }),
         button("Download").on_press(if app.syncing { Msg::Noop } else { Msg::SyncDownload }),
