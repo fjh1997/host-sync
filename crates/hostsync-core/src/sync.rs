@@ -2,7 +2,6 @@ use crate::storage;
 use reqwest::Client;
 
 const GIST_FILE_NAME: &str = "hostsync_data.enc";
-const GIST_KEY_FILE: &str = "hostsync_key.dat";
 const GIST_DESCRIPTION: &str = "HostSync Encrypted Server Data";
 
 fn headers(token: &str) -> reqwest::header::HeaderMap {
@@ -17,21 +16,17 @@ fn make_client() -> Result<Client, String> {
     crate::http::client()
 }
 
-/// Uploads encrypted server data and encryption key to a GitHub Gist.
+/// Uploads encrypted server data to a GitHub Gist.
 pub async fn upload() -> Result<(), String> {
     let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let data = storage::get_raw_encrypted().ok_or("no data to upload")?;
-    let enc_key = storage::get_encryption_key();
     let client = make_client()?;
 
-    let files = serde_json::json!({
-        GIST_FILE_NAME: { "content": data },
-        GIST_KEY_FILE: { "content": enc_key }
-    });
-
     if let Some(ref gist_id) = state.gist_id {
-        let body = serde_json::json!({ "files": files });
+        let body = serde_json::json!({
+            "files": { GIST_FILE_NAME: { "content": data } }
+        });
         let resp = client
             .patch(format!("https://api.github.com/gists/{}", gist_id))
             .headers(headers(token))
@@ -46,7 +41,7 @@ pub async fn upload() -> Result<(), String> {
         let body = serde_json::json!({
             "description": GIST_DESCRIPTION,
             "public": false,
-            "files": files
+            "files": { GIST_FILE_NAME: { "content": data } }
         });
         let resp = client
             .post("https://api.github.com/gists")
@@ -113,11 +108,6 @@ pub async fn download() -> Result<(), String> {
     let content = gist["files"][GIST_FILE_NAME]["content"]
         .as_str()
         .ok_or("file not found in gist")?;
-
-    // Sync encryption key from cloud so other devices can decrypt
-    if let Some(key) = gist["files"][GIST_KEY_FILE]["content"].as_str() {
-        storage::set_encryption_key(key).map_err(|e| e.to_string())?;
-    }
 
     storage::set_raw_encrypted(content).map_err(|e| e.to_string())
 }

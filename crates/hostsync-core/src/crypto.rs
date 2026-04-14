@@ -57,19 +57,6 @@ pub fn decrypt(encoded: &str, passphrase: &str) -> Result<String, &'static str> 
     String::from_utf8(plaintext).map_err(|_| "invalid utf8")
 }
 
-/// Generates a random 64-char hex key for first-time setup.
-pub fn generate_random_key() -> String {
-    let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    hex::encode(&bytes)
-}
-
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

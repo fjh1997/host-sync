@@ -12,10 +12,6 @@ fn servers_path() -> PathBuf {
     data_dir().join("servers.enc")
 }
 
-fn key_path() -> PathBuf {
-    data_dir().join("enc.key")
-}
-
 fn token_path() -> PathBuf {
     data_dir().join("github.json")
 }
@@ -25,23 +21,12 @@ fn ensure_dir() -> std::io::Result<()> {
     std::fs::create_dir_all(data_dir())
 }
 
-/// Returns or generates the local encryption key.
+/// Derives the encryption key from the GitHub OAuth token.
+/// Same account → same token → same key on every device.
 pub fn get_encryption_key() -> String {
-    if let Ok(key) = std::fs::read_to_string(key_path()) {
-        if !key.trim().is_empty() {
-            return key.trim().to_string();
-        }
-    }
-    let key = crypto::generate_random_key();
-    let _ = ensure_dir();
-    let _ = std::fs::write(key_path(), &key);
-    key
-}
-
-/// Sets the encryption key (used when syncing key from cloud).
-pub fn set_encryption_key(key: &str) -> std::io::Result<()> {
-    ensure_dir()?;
-    std::fs::write(key_path(), key.trim())
+    load_github_state()
+        .token
+        .unwrap_or_default()
 }
 
 pub fn load_servers() -> Vec<Server> {
