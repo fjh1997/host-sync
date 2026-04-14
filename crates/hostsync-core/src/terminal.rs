@@ -1,5 +1,41 @@
 use crate::model::Server;
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
+
+/// Returns the temp directory for HostSync key files.
+fn temp_key_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join("hostsync_keys");
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+/// If the server has an inline private key but no IdentityFile path,
+/// writes the key to a temp file and returns the path.
+fn resolve_key_file(server: &Server) -> Option<String> {
+    // Prefer explicit IdentityFile path
+    if let Some(ref path) = server.identity_file {
+        if !path.is_empty() {
+            return Some(path.clone());
+        }
+    }
+    // Fall back to writing inline key to temp file
+    if let Some(ref key) = server.private_key {
+        if !key.is_empty() {
+            let key_path = temp_key_dir().join(format!("key_{}", server.id));
+            if fs::write(&key_path, key).is_ok() {
+                // Unix: chmod 600
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600));
+                }
+                return Some(key_path.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
+}
 
 /// Launches the system's native terminal with SSH for the given server.
 pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
@@ -69,11 +105,9 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
 fn build_ssh_args(server: &Server) -> Vec<String> {
     let mut args = vec!["-p".to_string(), server.port.to_string()];
 
-    if let Some(ref id_file) = server.identity_file {
-        if !id_file.is_empty() {
-            args.push("-i".to_string());
-            args.push(id_file.clone());
-        }
+    if let Some(key_path) = resolve_key_file(server) {
+        args.push("-i".to_string());
+        args.push(key_path);
     }
 
     args.push(format!("{}@{}", server.username, server.host));
