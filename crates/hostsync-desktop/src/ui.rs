@@ -4,23 +4,34 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length};
 
-pub fn login_view(status: &str) -> Element<'_, Msg> {
-    let content = column![
+pub fn login_view<'a>(status: &'a str, user_code: &'a str, logging_in: bool) -> Element<'a, Msg> {
+    let mut content = column![
         Space::with_height(80),
         text("HostSync").size(40),
-        text("Manage your Linux servers everywhere").size(14),
+        text("Manage your Linux servers & SSH keys").size(14),
         Space::with_height(30),
-        button(text("Sign in with GitHub").size(16))
-            .padding([12, 32])
-            .on_press(Msg::Login),
-        if !status.is_empty() {
-            Element::from(container(text(status).size(13)))
-        } else {
-            Element::from(container(Space::new(0, 0)))
-        },
     ]
     .spacing(12)
     .align_x(Alignment::Center);
+
+    if !user_code.is_empty() {
+        // Show the device code for the user to enter
+        content = content
+            .push(text("Enter this code on GitHub:").size(14))
+            .push(text(user_code).size(36))
+            .push(text("(copied to clipboard)").size(12))
+            .push(text("Waiting for authorization...").size(13));
+    } else {
+        content = content.push(
+            button(text(if logging_in { "Requesting..." } else { "Sign in with GitHub" }).size(16))
+                .padding([12, 32])
+                .on_press_maybe(if logging_in { None } else { Some(Msg::Login) }),
+        );
+    }
+
+    if !status.is_empty() && user_code.is_empty() {
+        content = content.push(text(status).size(13));
+    }
 
     container(content)
         .center_x(Length::Fill)

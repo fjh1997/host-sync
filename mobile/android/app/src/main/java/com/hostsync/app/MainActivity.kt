@@ -42,8 +42,8 @@ class MainActivity : ComponentActivity() {
                     when (screen) {
                         "login" -> LoginScreen(
                             onLogin = {
-                                // Open GitHub OAuth in browser
-                                val url = "https://github.com/login/oauth/authorize?client_id=YOUR_GITHUB_CLIENT_ID&redirect_uri=http://localhost:9876/callback&scope=gist,read:user"
+                                // Device Flow: open GitHub device auth page
+                                val url = "https://github.com/login/device"
                                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             }
                         )

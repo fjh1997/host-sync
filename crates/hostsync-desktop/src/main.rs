@@ -38,6 +38,9 @@ struct App {
     // Status
     status_msg: String,
     syncing: bool,
+    // Device Flow login
+    device_user_code: String,
+    logging_in: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,7 @@ enum Msg {
     GoImportPaste,
     // Auth
     Login,
+    DeviceCodeReceived(Result<hostsync_core::auth::DeviceCode, String>),
     LoginDone(Result<String, String>),
     Logout,
     // Server list
@@ -106,6 +110,8 @@ impl App {
                 paste_text: String::new(),
                 status_msg: String::new(),
                 syncing: false,
+                device_user_code: String::new(),
+                logging_in: false,
             },
             Task::none(),
         )
@@ -231,20 +237,49 @@ impl App {
                 self.screen = Screen::ImportPaste;
             }
             Msg::Login => {
-                let url = hostsync_core::auth::auth_url();
-                let _ = open::that(&url);
+                self.logging_in = true;
+                self.status_msg = "Requesting device code...".into();
                 return Task::perform(
-                    async { hostsync_core::auth::login().await },
-                    Msg::LoginDone,
+                    async { hostsync_core::auth::request_device_code().await },
+                    Msg::DeviceCodeReceived,
                 );
             }
-            Msg::LoginDone(result) => match result {
-                Ok(_) => {
-                    self.servers = storage::load_servers();
-                    self.screen = Screen::Home;
+            Msg::DeviceCodeReceived(result) => match result {
+                Ok(dc) => {
+                    self.device_user_code = dc.user_code.clone();
+                    self.status_msg = format!(
+                        "Open {} and enter code: {}",
+                        dc.verification_uri, dc.user_code
+                    );
+                    // Copy code to clipboard for convenience
+                    if let Ok(mut clip) = arboard::Clipboard::new() {
+                        let _ = clip.set_text(&dc.user_code);
+                    }
+                    // Open browser
+                    let _ = open::that(&dc.verification_uri);
+                    // Start polling
+                    return Task::perform(
+                        async move { hostsync_core::auth::poll_for_token(&dc).await },
+                        Msg::LoginDone,
+                    );
                 }
-                Err(e) => self.status_msg = format!("Login failed: {}", e),
+                Err(e) => {
+                    self.logging_in = false;
+                    self.status_msg = format!("Failed: {}", e);
+                }
             },
+            Msg::LoginDone(result) => {
+                self.logging_in = false;
+                self.device_user_code.clear();
+                match result {
+                    Ok(_) => {
+                        self.servers = storage::load_servers();
+                        self.screen = Screen::Home;
+                        self.status_msg.clear();
+                    }
+                    Err(e) => self.status_msg = format!("Login failed: {}", e),
+                }
+            }
             Msg::Logout => {
                 let _ = hostsync_core::auth::logout();
                 self.screen = Screen::Login;
@@ -368,7 +403,7 @@ impl App {
 
     fn view(&self) -> Element<'_, Msg> {
         match &self.screen {
-            Screen::Login => ui::login_view(&self.status_msg),
+            Screen::Login => ui::login_view(&self.status_msg, &self.device_user_code, self.logging_in),
             Screen::Home => ui::home_view(self),
             Screen::AddEdit(edit_idx) => ui::form_view(self, *edit_idx),
             Screen::ImportPaste => ui::paste_view(&self.paste_text),

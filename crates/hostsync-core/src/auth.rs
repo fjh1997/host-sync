@@ -1,80 +1,129 @@
 use crate::storage;
 use reqwest::Client;
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
 
-pub const CLIENT_ID: &str = "YOUR_GITHUB_CLIENT_ID";
-pub const CLIENT_SECRET: &str = "YOUR_GITHUB_CLIENT_SECRET";
-const REDIRECT_URI: &str = "http://localhost:9876/callback";
-const SCOPES: &str = "gist,read:user";
+/// GitHub OAuth App Client ID (public — safe to commit).
+/// Create your own at: https://github.com/settings/applications/new
+/// Enable "Device Flow" in the OAuth App settings.
+pub const CLIENT_ID: &str = "Ov23liGz0a5kU4v1LwKI";
 
-/// Returns the GitHub OAuth authorization URL.
-pub fn auth_url() -> String {
-    let state = chrono::Utc::now().timestamp_millis().to_string();
-    format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
-        CLIENT_ID, REDIRECT_URI, SCOPES, state
-    )
+const DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
+const ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const SCOPES: &str = "gist read:user";
+
+/// Response from the device code request.
+#[derive(Debug, Clone)]
+pub struct DeviceCode {
+    pub user_code: String,
+    pub verification_uri: String,
+    pub device_code: String,
+    pub interval: u64,
+    pub expires_in: u64,
 }
 
-/// Starts a local HTTP server, waits for the OAuth callback, exchanges the
-/// code for a token, fetches user info, and saves everything.
-/// Returns the access token on success.
-pub async fn login() -> Result<String, String> {
-    let listener = TcpListener::bind("127.0.0.1:9876").map_err(|e| e.to_string())?;
-    listener
-        .set_nonblocking(false)
-        .map_err(|e| e.to_string())?;
-
-    // Accept one connection (blocking in a tokio::spawn_blocking)
-    let (mut stream, _) = tokio::task::spawn_blocking(move || {
-        listener.accept()
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).map_err(|e| e.to_string())?;
-
-    // Parse code from GET /callback?code=xxx&state=yyy
-    let code = request_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|path| {
-            let query = path.split('?').nth(1).unwrap_or("");
-            query
-                .split('&')
-                .find_map(|pair| {
-                    let (k, v) = pair.split_once('=')?;
-                    if k == "code" { Some(v.to_string()) } else { None }
-                })
-        })
-        .ok_or("no code in callback")?;
-
-    // Exchange code for token
+/// Step 1: Request a device code. Returns the code the user must enter
+/// at the verification URL.
+pub async fn request_device_code() -> Result<DeviceCode, String> {
     let client = Client::new();
     let resp = client
-        .post("https://github.com/login/oauth/access_token")
+        .post(DEVICE_CODE_URL)
         .header("Accept", "application/json")
-        .form(&[
-            ("client_id", CLIENT_ID),
-            ("client_secret", CLIENT_SECRET),
-            ("code", code.as_str()),
-            ("redirect_uri", REDIRECT_URI),
-        ])
+        .form(&[("client_id", CLIENT_ID), ("scope", SCOPES)])
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let token = body["access_token"]
-        .as_str()
-        .ok_or("no access_token in response")?
-        .to_string();
 
-    // Fetch user info
+    if let Some(err) = body["error"].as_str() {
+        return Err(format!("{}: {}", err, body["error_description"].as_str().unwrap_or("")));
+    }
+
+    Ok(DeviceCode {
+        user_code: body["user_code"]
+            .as_str()
+            .ok_or("missing user_code")?
+            .to_string(),
+        verification_uri: body["verification_uri"]
+            .as_str()
+            .ok_or("missing verification_uri")?
+            .to_string(),
+        device_code: body["device_code"]
+            .as_str()
+            .ok_or("missing device_code")?
+            .to_string(),
+        interval: body["interval"].as_u64().unwrap_or(5),
+        expires_in: body["expires_in"].as_u64().unwrap_or(900),
+    })
+}
+
+/// Step 2: Poll for the access token after the user has entered the code.
+/// This blocks (with async sleep) until the user authorizes or the code expires.
+pub async fn poll_for_token(device_code: &DeviceCode) -> Result<String, String> {
+    let client = Client::new();
+    let interval = std::time::Duration::from_secs(device_code.interval);
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(device_code.expires_in);
+
+    loop {
+        if std::time::Instant::now() > deadline {
+            return Err("device code expired".to_string());
+        }
+
+        tokio::time::sleep(interval).await;
+
+        let resp = client
+            .post(ACCESS_TOKEN_URL)
+            .header("Accept", "application/json")
+            .form(&[
+                ("client_id", CLIENT_ID),
+                ("device_code", device_code.device_code.as_str()),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ])
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+        if let Some(token) = body["access_token"].as_str() {
+            // Got the token — fetch user info and save
+            fetch_and_save_user(token).await?;
+            return Ok(token.to_string());
+        }
+
+        match body["error"].as_str() {
+            Some("authorization_pending") => continue,
+            Some("slow_down") => {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+            Some(err) => {
+                return Err(format!(
+                    "{}: {}",
+                    err,
+                    body["error_description"].as_str().unwrap_or("")
+                ));
+            }
+            None => continue,
+        }
+    }
+}
+
+/// Convenience: runs both steps and polls until authorized.
+/// The caller should open `dc.verification_uri` in a browser and show `dc.user_code`.
+pub async fn login() -> Result<String, String> {
+    let dc = request_device_code().await?;
+
+    eprintln!(
+        "Open {} and enter code: {}",
+        dc.verification_uri, dc.user_code
+    );
+
+    poll_for_token(&dc).await
+}
+
+async fn fetch_and_save_user(token: &str) -> Result<(), String> {
+    let client = Client::new();
     let user_resp = client
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {}", token))
@@ -86,25 +135,13 @@ pub async fn login() -> Result<String, String> {
 
     let user: serde_json::Value = user_resp.json().await.map_err(|e| e.to_string())?;
 
-    // Save state
     let state = storage::GithubState {
-        token: Some(token.clone()),
+        token: Some(token.to_string()),
         gist_id: storage::load_github_state().gist_id,
         username: user["login"].as_str().map(String::from),
         avatar_url: user["avatar_url"].as_str().map(String::from),
     };
-    storage::save_github_state(&state).map_err(|e| e.to_string())?;
-
-    // Send success response
-    let html = r#"<html><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:system-ui;background:#0d1117;color:#f0f6fc;"><div style="text-align:center"><h1>&#10004; Login Successful</h1><p>You can close this window.</p></div></body></html>"#;
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        html.len(),
-        html
-    );
-    let _ = stream.write_all(response.as_bytes());
-
-    Ok(token)
+    storage::save_github_state(&state).map_err(|e| e.to_string())
 }
 
 pub fn logout() -> Result<(), String> {
