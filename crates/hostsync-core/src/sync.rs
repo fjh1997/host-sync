@@ -55,6 +55,25 @@ pub async fn upload(passphrase: Option<&str>) -> Result<(), String> {
         return Err(ERR_NEED_PASSPHRASE.to_string());
     }
 
+    // Normalize identity_file path for any server with an inline private key
+    // so exported SSH configs point to the managed path automatically
+    let mut servers = storage::load_servers();
+    let mut changed = false;
+    for server in &mut servers {
+        if let Some(ref priv_key) = server.private_key {
+            if !priv_key.trim().is_empty() {
+                let managed_path = format!("~/.ssh/hostsync_keys/{}.key", server.id);
+                if server.identity_file.as_deref() != Some(&managed_path) {
+                    server.identity_file = Some(managed_path);
+                    changed = true;
+                }
+            }
+        }
+    }
+    if changed {
+        storage::save_servers(&servers).map_err(|e| e.to_string())?;
+    }
+
     let state = storage::load_github_state();
     let token = state.token.as_deref().ok_or("not logged in")?;
     let data = storage::get_raw_encrypted().ok_or("no data to upload")?;

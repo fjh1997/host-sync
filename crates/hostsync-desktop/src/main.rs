@@ -198,16 +198,23 @@ impl App {
     fn save_form(&mut self, edit_idx: Option<usize>) {
         let port = self.form_port.parse().unwrap_or(22);
         let now = chrono::Utc::now();
+        let server_id = edit_idx
+            .map(|i| self.servers[i].id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        
         let server = hostsync_core::model::Server {
-            id: edit_idx
-                .map(|i| self.servers[i].id.clone())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            id: server_id.clone(),
             name: self.form_name.trim().to_string(),
             host: self.form_host.trim().to_string(),
             port,
             username: self.form_user.trim().to_string(),
             auth_type: self.form_auth_type.clone(),
             identity_file: if self.form_auth_type == hostsync_core::model::AuthType::Key
+                && !self.form_private_key.trim().is_empty()
+            {
+                // Auto-normalize path to the managed location for inline keys
+                Some(format!("~/.ssh/hostsync_keys/{}.key", server_id))
+            } else if self.form_auth_type == hostsync_core::model::AuthType::Key
                 && !self.form_identity_file.trim().is_empty()
             {
                 Some(self.form_identity_file.trim().to_string())
