@@ -74,6 +74,7 @@ enum Msg {
     // Server list
     SearchChanged(String),
     Connect(usize),
+    CopyCommand(usize),
     Delete(usize),
     // Form
     FormName(String),
@@ -341,6 +342,19 @@ impl App {
                 let server = &self.servers[idx];
                 if let Err(e) = hostsync_core::terminal::launch_native_terminal(server) {
                     self.status_msg = format!("Failed: {}", e);
+                }
+            }
+            Msg::CopyCommand(idx) => {
+                let s = &self.servers[idx];
+                let mut cmd = format!("ssh -p {} {}@{}", s.port, s.username, s.host);
+                if let Some(ref id_file) = s.identity_file {
+                    if !id_file.is_empty() {
+                        cmd = format!("ssh -i {} -p {} {}@{}", id_file, s.port, s.username, s.host);
+                    }
+                }
+                if let Ok(mut clip) = arboard::Clipboard::new() {
+                    let _ = clip.set_text(cmd);
+                    self.status_msg = "Command copied to clipboard".into();
                 }
             }
             Msg::Delete(idx) => {

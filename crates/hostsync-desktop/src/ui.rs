@@ -159,6 +159,7 @@ fn server_row(server: &hostsync_core::model::Server, idx: usize) -> Element<'sta
     row![
         column![info, notes_row].spacing(2).width(Length::Fill),
         button("Connect").on_press(Msg::Connect(idx)),
+        button("Copy").on_press(Msg::CopyCommand(idx)),
         button("Edit").on_press(Msg::GoEdit(idx)),
         button("Delete").on_press(Msg::Delete(idx)),
     ]
