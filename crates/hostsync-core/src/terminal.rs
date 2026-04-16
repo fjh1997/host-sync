@@ -93,8 +93,40 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
     let key_path = sync_key_to_file(server);
     let ssh_args = build_ssh_args(server, key_path.as_deref());
 
+    let password = if server.auth_type == crate::model::AuthType::Password {
+        server.password.as_deref().filter(|p| !p.is_empty())
+    } else {
+        None
+    };
+
     #[cfg(target_os = "windows")]
     {
+        if let Some(pw) = password {
+            let mut sshpass_args = vec!["-e".to_string(), "ssh".to_string()];
+            sshpass_args.extend(ssh_args.clone());
+
+            // Try Windows Terminal (wt) with sshpass
+            let wt = Command::new("cmd")
+                .args(["/c", "start", "wt", "sshpass"])
+                .args(&sshpass_args)
+                .env("SSHPASS", pw)
+                .spawn();
+            if wt.is_ok() {
+                return Ok(());
+            }
+
+            // Try cmd.exe with sshpass
+            let cmd = Command::new("cmd")
+                .args(["/c", "start", "cmd", "/k", "sshpass"])
+                .args(&sshpass_args)
+                .env("SSHPASS", pw)
+                .spawn();
+            if cmd.is_ok() {
+                return Ok(());
+            }
+        }
+
+        // Fallback to normal ssh if sshpass fails or no password
         let wt = Command::new("cmd")
             .args(["/c", "start", "wt", "ssh"])
             .args(&ssh_args)
@@ -112,11 +144,21 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let escaped = ssh_args.join(" ");
-        let script = format!(
-            "tell application \"Terminal\" to do script \"ssh {}\"",
-            escaped
-        );
+        let escaped_args = ssh_args.join(" ");
+        let script = if let Some(pw) = password {
+            // Use export SSHPASS to pass the password to sshpass -e
+            let escaped_pw = pw.replace("'", "'\\''");
+            format!(
+                "tell application \"Terminal\" to do script \"export SSHPASS='{}'; sshpass -e ssh {}\"",
+                escaped_pw, escaped_args
+            )
+        } else {
+            format!(
+                "tell application \"Terminal\" to do script \"ssh {}\"",
+                escaped_args
+            )
+        };
+
         Command::new("osascript")
             .args(["-e", &script])
             .spawn()
@@ -127,22 +169,37 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         for term in &["gnome-terminal", "konsole", "xfce4-terminal", "xterm"] {
-            let result = match *term {
-                "gnome-terminal" => Command::new(term)
-                    .arg("--")
-                    .arg("ssh")
-                    .args(&ssh_args)
-                    .spawn(),
-                "konsole" => Command::new(term)
-                    .arg("-e")
-                    .arg("ssh")
-                    .args(&ssh_args)
-                    .spawn(),
-                _ => Command::new(term)
-                    .arg("-e")
-                    .arg(format!("ssh {}", ssh_args.join(" ")))
-                    .spawn(),
+            let result = if let Some(pw) = password {
+                let mut cmd = Command::new(term);
+                cmd.env("SSHPASS", pw);
+                
+                let mut full_args = vec!["sshpass".to_string(), "-e".to_string(), "ssh".to_string()];
+                full_args.extend(ssh_args.clone());
+
+                match *term {
+                    "gnome-terminal" => cmd.arg("--").args(&full_args).spawn(),
+                    "konsole" => cmd.arg("-e").args(&full_args).spawn(),
+                    _ => cmd.arg("-e").arg(full_args.join(" ")).spawn(),
+                }
+            } else {
+                match *term {
+                    "gnome-terminal" => Command::new(term)
+                        .arg("--")
+                        .arg("ssh")
+                        .args(&ssh_args)
+                        .spawn(),
+                    "konsole" => Command::new(term)
+                        .arg("-e")
+                        .arg("ssh")
+                        .args(&ssh_args)
+                        .spawn(),
+                    _ => Command::new(term)
+                        .arg("-e")
+                        .arg(format!("ssh {}", ssh_args.join(" ")))
+                        .spawn(),
+                }
             };
+
             if result.is_ok() {
                 return Ok(());
             }
