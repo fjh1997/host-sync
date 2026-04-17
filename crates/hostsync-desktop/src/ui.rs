@@ -179,40 +179,63 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
     let is_key = app.form_auth_type == hostsync_core::model::AuthType::Key;
 
     let auth_buttons = row![
-        button(if !is_key { "> Password" } else { "  Password" })
+        button(text("Password").size(14).align_x(Alignment::Center))
+            .width(Length::Fill)
+            .padding(10)
+            .style(if !is_key { button::primary } else { button::secondary })
             .on_press(Msg::FormAuthPassword),
-        button(if is_key { "> SSH Key" } else { "  SSH Key" })
+        button(text("SSH Key").size(14).align_x(Alignment::Center))
+            .width(Length::Fill)
+            .padding(10)
+            .style(if is_key { button::primary } else { button::secondary })
             .on_press(Msg::FormAuthKey),
     ]
-    .spacing(8);
+    .spacing(1)
+    .width(Length::Fill);
 
     let mut fields = column![
-        text(title).size(22),
-        Space::with_height(8),
-        text("Host Alias (Name)").size(13),
-        text_input("e.g. prod-web", &app.form_name).on_input(Msg::FormName).padding(8),
-        row![
+        text(title).size(26),
+        Space::with_height(12),
+        
+        // Basic Info Group
+        column![
+            text("Basic Information").size(16),
+            Space::with_height(4),
             column![
-                text("HostName").size(13),
-                text_input("e.g. 192.168.1.100", &app.form_host).on_input(Msg::FormHost).padding(8),
+                text("Host Alias (Name)").size(13),
+                text_input("e.g. prod-web", &app.form_name).on_input(Msg::FormName).padding(10),
+            ].spacing(4),
+            row![
+                column![
+                    text("HostName").size(13),
+                    text_input("e.g. 1.2.3.4", &app.form_host).on_input(Msg::FormHost).padding(10),
+                ]
+                .spacing(4)
+                .width(Length::FillPortion(3)),
+                column![
+                    text("Port").size(13),
+                    text_input("22", &app.form_port).on_input(Msg::FormPort).padding(10),
+                ]
+                .spacing(4)
+                .width(Length::FillPortion(1)),
             ]
-            .spacing(4)
-            .width(Length::FillPortion(3)),
+            .spacing(12),
             column![
-                text("Port").size(13),
-                text_input("22", &app.form_port).on_input(Msg::FormPort).padding(8),
-            ]
-            .spacing(4)
-            .width(Length::FillPortion(1)),
-        ]
-        .spacing(8),
-        text("User").size(13),
-        text_input("root", &app.form_user).on_input(Msg::FormUser).padding(8),
-        text("Authentication").size(13),
-        auth_buttons,
+                text("User").size(13),
+                text_input("root", &app.form_user).on_input(Msg::FormUser).padding(10),
+            ].spacing(4),
+        ].spacing(12),
+
+        Space::with_height(16),
+
+        // Auth Group
+        column![
+            text("Authentication").size(16),
+            Space::with_height(4),
+            auth_buttons,
+        ].spacing(8),
     ]
-    .spacing(6)
-    .padding(16);
+    .spacing(16);
 
     let key_path_hint = if cfg!(windows) {
         "e.g. C:\\Users\\you\\.ssh\\id_rsa  or  ~/.ssh/id_rsa"
@@ -222,40 +245,49 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
 
     if is_key {
         fields = fields
-            .push(text("IdentityFile (path)").size(13))
             .push(
-                row![
-                    text_input(key_path_hint, &app.form_identity_file)
-                        .on_input(Msg::FormIdentityFile)
-                        .padding(8),
-                    button("Browse").on_press(Msg::FormBrowsePrivateKey),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
+                column![
+                    text("IdentityFile (path)").size(13),
+                    row![
+                        text_input(key_path_hint, &app.form_identity_file)
+                            .on_input(Msg::FormIdentityFile)
+                            .padding(10),
+                        button("Browse").padding(10).on_press(Msg::FormBrowsePrivateKey),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                ].spacing(4)
             )
-            .push(text("Private Key Content (optional)").size(13))
             .push(
-                container(
-                    text_editor(&app.form_private_key)
-                        .on_action(Msg::FormPrivateKey)
-                        .padding(8),
-                )
-                .height(150)
-                .style(container::bordered_box),
+                column![
+                    text("Private Key Content (optional)").size(13),
+                    container(
+                        text_editor(&app.form_private_key)
+                            .on_action(Msg::FormPrivateKey)
+                            .padding(8),
+                    )
+                    .height(180)
+                    .style(container::bordered_box),
+                ].spacing(4)
             )
-            .push(text("Key Passphrase (optional)").size(13))
             .push(
-                text_input("", &app.form_passphrase)
-                    .on_input(Msg::FormPassphrase)
-                    .padding(8)
-                    .secure(true),
+                column![
+                    text("Key Passphrase (optional)").size(13),
+                    text_input("", &app.form_passphrase)
+                        .on_input(Msg::FormPassphrase)
+                        .padding(10)
+                        .secure(true),
+                ].spacing(4)
             );
     } else {
-        fields = fields.push(text("Password").size(13)).push(
-            text_input("", &app.form_password)
-                .on_input(Msg::FormPassword)
-                .padding(8)
-                .secure(true),
+        fields = fields.push(
+            column![
+                text("Password").size(13),
+                text_input("", &app.form_password)
+                    .on_input(Msg::FormPassword)
+                    .padding(10)
+                    .secure(true),
+            ].spacing(4)
         );
     }
 
@@ -278,30 +310,55 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
     );
 
     fields = fields
-        .push(text("Notes (optional)").size(13))
         .push(
-            container(
-                text_editor(&app.form_notes)
-                    .on_action(Msg::FormNotes)
-                    .padding(8),
-            )
-            .height(80)
-            .style(container::bordered_box),
+            column![
+                text("Notes (optional)").size(13),
+                container(
+                    text_editor(&app.form_notes)
+                        .on_action(Msg::FormNotes)
+                        .padding(8),
+                )
+                .height(100)
+                .style(container::bordered_box),
+            ].spacing(4)
         )
         .push(Space::with_height(8))
-        .push(text("SSH Config Preview").size(13))
-        .push(text(preview).size(12))
-        .push(Space::with_height(12))
+        .push(
+            column![
+                text("SSH Config Preview").size(14),
+                container(
+                    scrollable(
+                        text(preview)
+                            .size(13)
+                            .font(iced::Font::MONOSPACE)
+                    )
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .style(|_theme| {
+                    container::Style {
+                        background: Some(iced::Background::Color(iced::Color::from_rgb8(30, 30, 30))),
+                        border: iced::Border {
+                            color: iced::Color::from_rgb8(60, 60, 60),
+                            width: 1.0,
+                            radius: 4.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                }),
+            ].spacing(8)
+        )
+        .push(Space::with_height(16))
         .push(
             row![
-                button("Cancel").on_press(Msg::GoHome),
+                button("Cancel").padding([10, 20]).on_press(Msg::GoHome),
                 horizontal_space(),
-                button(text("Save").size(14)).padding([8, 24]).on_press(Msg::FormSave),
+                button(text("Save").size(16)).padding([10, 40]).on_press(Msg::FormSave),
             ]
-            .spacing(8),
+            .spacing(12),
         );
 
-    scrollable(container(fields).width(Length::Fill).padding(16)).into()
+    scrollable(container(fields).width(Length::Fill).max_width(600).padding(20)).into()
 }
 
 pub fn paste_view(paste_text: &text_editor::Content) -> Element<'_, Msg> {
