@@ -1,6 +1,6 @@
 use crate::{App, Msg};
 use iced::widget::{
-    button, column, container, horizontal_space, row, scrollable, text, text_input, Space,
+    button, column, container, horizontal_space, row, scrollable, text, text_editor, text_input, Space,
 };
 use iced::{Alignment, Element, Length};
 
@@ -235,9 +235,13 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
             )
             .push(text("Private Key Content (optional)").size(13))
             .push(
-                text_input("-----BEGIN OPENSSH PRIVATE KEY-----", &app.form_private_key)
-                    .on_input(Msg::FormPrivateKey)
-                    .padding(8),
+                container(
+                    text_editor(&app.form_private_key)
+                        .on_action(Msg::FormPrivateKey)
+                        .padding(8),
+                )
+                .height(150)
+                .style(container::bordered_box),
             )
             .push(text("Key Passphrase (optional)").size(13))
             .push(
@@ -276,9 +280,13 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
     fields = fields
         .push(text("Notes (optional)").size(13))
         .push(
-            text_input("", &app.form_notes)
-                .on_input(Msg::FormNotes)
-                .padding(8),
+            container(
+                text_editor(&app.form_notes)
+                    .on_action(Msg::FormNotes)
+                    .padding(8),
+            )
+            .height(80)
+            .style(container::bordered_box),
         )
         .push(Space::with_height(8))
         .push(text("SSH Config Preview").size(13))
@@ -296,16 +304,17 @@ pub fn form_view(app: &App, edit_idx: Option<usize>) -> Element<'_, Msg> {
     scrollable(container(fields).width(Length::Fill).padding(16)).into()
 }
 
-pub fn paste_view(paste_text: &str) -> Element<'_, Msg> {
+pub fn paste_view(paste_text: &text_editor::Content) -> Element<'_, Msg> {
     let content = column![
         text("Paste SSH Config").size(22),
         Space::with_height(8),
-        text_input(
-            "Host myserver\n    HostName 192.168.1.1\n    User root",
-            paste_text,
+        container(
+            text_editor(paste_text)
+                .on_action(Msg::PasteTextChanged)
+                .padding(8),
         )
-        .on_input(Msg::PasteTextChanged)
-        .padding(8),
+        .height(300)
+        .style(container::bordered_box),
         Space::with_height(12),
         row![
             button("Cancel").on_press(Msg::GoHome),

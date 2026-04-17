@@ -3,6 +3,7 @@
 mod ui;
 
 use hostsync_core::storage;
+use iced::widget::text_editor;
 use iced::{Element, Task, Theme};
 
 fn main() -> iced::Result {
@@ -42,11 +43,11 @@ struct App {
     form_auth_type: hostsync_core::model::AuthType,
     form_password: String,
     form_identity_file: String,
-    form_private_key: String,
+    form_private_key: text_editor::Content,
     form_passphrase: String,
-    form_notes: String,
+    form_notes: text_editor::Content,
     // Import
-    paste_text: String,
+    paste_text: text_editor::Content,
     // Status
     status_msg: String,
     syncing: bool,
@@ -85,11 +86,10 @@ enum Msg {
     FormAuthKey,
     FormPassword(String),
     FormIdentityFile(String),
-    FormPrivateKey(String),
     FormBrowsePrivateKey,
     FormBrowsePrivateKeyDone(Option<(String, String)>), // (path, content)
     FormPassphrase(String),
-    FormNotes(String),
+    FormNotes(text_editor::Action),
     FormSave,
     // Sync
     SyncUpload,
@@ -102,7 +102,7 @@ enum Msg {
     ImportPasteConfirm,
     ExportClipboard,
     ExportSystem,
-    PasteTextChanged(String),
+    PasteTextChanged(text_editor::Action),
     // Proxy
     GoProxy,
     ProxyInput(String),
@@ -112,6 +112,7 @@ enum Msg {
     SyncPassphraseConfirm,
     // Misc
     Noop,
+    FormPrivateKey(text_editor::Action),
 }
 
 impl App {
@@ -139,10 +140,10 @@ impl App {
                 form_auth_type: hostsync_core::model::AuthType::Password,
                 form_password: String::new(),
                 form_identity_file: String::new(),
-                form_private_key: String::new(),
+                form_private_key: text_editor::Content::new(),
                 form_passphrase: String::new(),
-                form_notes: String::new(),
-                paste_text: String::new(),
+                form_notes: text_editor::Content::new(),
+                paste_text: text_editor::Content::new(),
                 status_msg: if logged_in { "Syncing from cloud...".into() } else { String::new() },
                 syncing: logged_in,
                 device_user_code: String::new(),
@@ -162,9 +163,9 @@ impl App {
         self.form_auth_type = hostsync_core::model::AuthType::Password;
         self.form_password.clear();
         self.form_identity_file.clear();
-        self.form_private_key.clear();
+        self.form_private_key = text_editor::Content::new();
         self.form_passphrase.clear();
-        self.form_notes.clear();
+        self.form_notes = text_editor::Content::new();
     }
 
     fn load_form_from(&mut self, idx: usize) {
@@ -176,9 +177,9 @@ impl App {
         self.form_auth_type = s.auth_type.clone();
         self.form_password = s.password.clone().unwrap_or_default();
         self.form_identity_file = s.identity_file.clone().unwrap_or_default();
-        self.form_private_key = s.private_key.clone().unwrap_or_default();
+        self.form_private_key = text_editor::Content::with_text(&s.private_key.clone().unwrap_or_default());
         self.form_passphrase = s.passphrase.clone().unwrap_or_default();
-        self.form_notes = s.notes.clone().unwrap_or_default();
+        self.form_notes = text_editor::Content::with_text(&s.notes.clone().unwrap_or_default());
     }
 
     fn filtered_indices(&self) -> Vec<usize> {
@@ -211,7 +212,7 @@ impl App {
             username: self.form_user.trim().to_string(),
             auth_type: self.form_auth_type.clone(),
             identity_file: if self.form_auth_type == hostsync_core::model::AuthType::Key
-                && !self.form_private_key.trim().is_empty()
+                && !self.form_private_key.text().trim().is_empty()
             {
                 // Auto-normalize path to the managed location for inline keys
                 Some(format!("~/.ssh/hostsync_keys/{}.key", server_id))
@@ -230,9 +231,9 @@ impl App {
                 None
             },
             private_key: if self.form_auth_type == hostsync_core::model::AuthType::Key
-                && !self.form_private_key.trim().is_empty()
+                && !self.form_private_key.text().trim().is_empty()
             {
-                Some(self.form_private_key.clone())
+                Some(self.form_private_key.text())
             } else {
                 None
             },
@@ -243,10 +244,13 @@ impl App {
             } else {
                 None
             },
-            notes: if self.form_notes.trim().is_empty() {
-                None
-            } else {
-                Some(self.form_notes.trim().to_string())
+            notes: {
+                let text = self.form_notes.text();
+                if text.trim().is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
             },
             created_at: edit_idx
                 .map(|i| self.servers[i].created_at)
@@ -282,7 +286,7 @@ impl App {
                 self.screen = Screen::AddEdit(Some(idx));
             }
             Msg::GoImportPaste => {
-                self.paste_text.clear();
+                self.paste_text = text_editor::Content::new();
                 self.screen = Screen::ImportPaste;
             }
             Msg::Login => {
@@ -379,7 +383,7 @@ impl App {
             }
             Msg::FormPassword(s) => self.form_password = s,
             Msg::FormIdentityFile(s) => self.form_identity_file = s,
-            Msg::FormPrivateKey(s) => self.form_private_key = s,
+            Msg::FormPrivateKey(action) => self.form_private_key.perform(action),
             Msg::FormBrowsePrivateKey => {
                 return Task::perform(
                     async {
@@ -403,11 +407,11 @@ impl App {
             Msg::FormBrowsePrivateKeyDone(result) => {
                 if let Some((path, content)) = result {
                     self.form_identity_file = path;
-                    self.form_private_key = content;
+                    self.form_private_key = text_editor::Content::with_text(&content);
                 }
             }
             Msg::FormPassphrase(s) => self.form_passphrase = s,
-            Msg::FormNotes(s) => self.form_notes = s,
+            Msg::FormNotes(action) => self.form_notes.perform(action),
             Msg::FormSave => {
                 if let Screen::AddEdit(edit_idx) = self.screen {
                     self.save_form(edit_idx);
@@ -506,7 +510,7 @@ impl App {
                 }
             }
             Msg::ImportPasteConfirm => {
-                let imported = hostsync_core::ssh_config::parse(&self.paste_text);
+                let imported = hostsync_core::ssh_config::parse(&self.paste_text.text());
                 let existing: std::collections::HashSet<String> =
                     self.servers.iter().map(|s| s.name.clone()).collect();
                 let mut added = 0;
@@ -542,7 +546,7 @@ impl App {
                     Err(e) => self.status_msg = format!("Export failed: {}", e),
                 }
             }
-            Msg::PasteTextChanged(s) => self.paste_text = s,
+            Msg::PasteTextChanged(action) => self.paste_text.perform(action),
             Msg::GoProxy => {
                 let from_login = matches!(self.screen, Screen::Login);
                 self.proxy_input = storage::load_proxy().unwrap_or_default();
