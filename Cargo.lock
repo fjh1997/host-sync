@@ -1665,6 +1665,7 @@ dependencies = [
  "iced",
  "open",
  "rfd",
+ "sys-locale",
  "tokio",
  "uuid",
 ]

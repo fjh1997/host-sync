@@ -1,5 +1,114 @@
 import SwiftUI
 
+enum AppLanguageChoice: String, CaseIterable, Identifiable {
+    case system
+    case english
+    case chinese
+
+    var id: String { rawValue }
+}
+
+enum AppLanguage {
+    case english
+    case chinese
+}
+
+struct AppStrings {
+    let language: AppLanguage
+    let subtitle: String
+    let signInWithGitHub: String
+    let settings: String
+    let languageTitle: String
+    let followSystem: String
+    let languageEnglish: String
+    let languageChinese: String
+    let done: String
+    let logout: String
+    let noServersYet: String
+    let commandPlaceholder: String
+    let send: String
+
+    func systemLanguageDetected(_ name: String) -> String {
+        switch language {
+        case .english:
+            return "Current system language: \(name)"
+        case .chinese:
+            return "当前系统语言：\(name)"
+        }
+    }
+
+    func connectingTo(_ host: String, port: Int) -> String {
+        switch language {
+        case .english:
+            return "Connecting to \(host):\(port)...\n"
+        case .chinese:
+            return "正在连接到 \(host):\(port)...\n"
+        }
+    }
+}
+
+private func systemAppLanguage() -> AppLanguage {
+    let preferred = Locale.preferredLanguages.first?.lowercased() ?? "en"
+    return preferred.hasPrefix("zh") ? .chinese : .english
+}
+
+private func resolvedLanguage(for choice: AppLanguageChoice) -> AppLanguage {
+    switch choice {
+    case .system:
+        return systemAppLanguage()
+    case .english:
+        return .english
+    case .chinese:
+        return .chinese
+    }
+}
+
+private func appStrings(for language: AppLanguage) -> AppStrings {
+    switch language {
+    case .english:
+        return AppStrings(
+            language: .english,
+            subtitle: "Manage your Linux servers & SSH keys",
+            signInWithGitHub: "Sign in with GitHub",
+            settings: "Settings",
+            languageTitle: "Language",
+            followSystem: "Follow System",
+            languageEnglish: "English",
+            languageChinese: "Chinese",
+            done: "Done",
+            logout: "Logout",
+            noServersYet: "No servers yet",
+            commandPlaceholder: "Command...",
+            send: "Send"
+        )
+    case .chinese:
+        return AppStrings(
+            language: .chinese,
+            subtitle: "管理你的 Linux 服务器与 SSH 密钥",
+            signInWithGitHub: "使用 GitHub 登录",
+            settings: "设置",
+            languageTitle: "语言",
+            followSystem: "跟随系统",
+            languageEnglish: "英文",
+            languageChinese: "中文",
+            done: "完成",
+            logout: "退出登录",
+            noServersYet: "还没有服务器",
+            commandPlaceholder: "输入命令...",
+            send: "发送"
+        )
+    }
+}
+
+private func systemLanguageName(for strings: AppStrings) -> String {
+    switch systemAppLanguage() {
+    case .english:
+        return strings.languageEnglish
+    case .chinese:
+        return strings.languageChinese
+    }
+}
+
 @main
 struct HostSyncApp: App {
     var body: some Scene {
@@ -12,16 +121,32 @@ struct HostSyncApp: App {
 struct ContentView: View {
     @State private var servers: [ServerItem] = []
     @State private var isLoggedIn = HostSyncBridge.isLoggedIn()
+    @AppStorage("app_language") private var appLanguageRaw = AppLanguageChoice.system.rawValue
+
+    private var languageBinding: Binding<AppLanguageChoice> {
+        Binding(
+            get: { AppLanguageChoice(rawValue: appLanguageRaw) ?? .system },
+            set: { appLanguageRaw = $0.rawValue }
+        )
+    }
+
+    private var languageChoice: AppLanguageChoice {
+        AppLanguageChoice(rawValue: appLanguageRaw) ?? .system
+    }
+
+    private var strings: AppStrings {
+        appStrings(for: resolvedLanguage(for: languageChoice))
+    }
 
     var body: some View {
         NavigationStack {
             if isLoggedIn {
-                HomeView(servers: $servers, onLogout: {
+                HomeView(servers: $servers, strings: strings, languageChoice: languageBinding, onLogout: {
                     isLoggedIn = false
                 })
                 .onAppear { servers = HostSyncBridge.loadServers() }
             } else {
-                LoginView(onLogin: {
+                LoginView(strings: strings, languageChoice: languageBinding, onLogin: {
                     isLoggedIn = true
                     servers = HostSyncBridge.loadServers()
                 })
@@ -31,7 +156,10 @@ struct ContentView: View {
 }
 
 struct LoginView: View {
+    let strings: AppStrings
+    @Binding var languageChoice: AppLanguageChoice
     let onLogin: () -> Void
+    @State private var showSettings = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -41,41 +169,73 @@ struct LoginView: View {
                 .foregroundColor(.secondary)
             Text("HostSync")
                 .font(.largeTitle.bold())
-            Text("Manage your Linux servers")
+            Text(strings.subtitle)
                 .foregroundColor(.secondary)
             Spacer().frame(height: 32)
-            Button("Sign in with GitHub") {
+            Button(strings.signInWithGitHub) {
                 // Open OAuth URL in Safari, callback handled by core
                 onLogin()
             }
             .buttonStyle(.borderedProminent)
+            Button(strings.settings) {
+                showSettings = true
+            }
             Spacer()
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                SettingsView(languageChoice: $languageChoice)
+            }
         }
     }
 }
 
 struct HomeView: View {
     @Binding var servers: [ServerItem]
+    let strings: AppStrings
+    @Binding var languageChoice: AppLanguageChoice
     let onLogout: () -> Void
+    @State private var showSettings = false
 
     var body: some View {
-        List {
-            ForEach(servers) { server in
-                NavigationLink(destination: TerminalView(server: server)) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(server.name).font(.headline)
-                        Text("\(server.username)@\(server.host):\(server.port)")
-                            .font(.caption).monospaced()
-                            .foregroundColor(.secondary)
+        Group {
+            if servers.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Text(strings.noServersYet)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+            } else {
+                List {
+                    ForEach(servers) { server in
+                        NavigationLink(destination: TerminalView(server: server, strings: strings)) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(server.name).font(.headline)
+                                Text("\(server.username)@\(server.host):\(server.port)")
+                                    .font(.caption).monospaced()
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
                     }
-                    .padding(.vertical, 4)
                 }
             }
         }
         .navigationTitle("HostSync")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Logout", action: onLogout)
+                Button(strings.settings) {
+                    showSettings = true
+                }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(strings.logout, action: onLogout)
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                SettingsView(languageChoice: $languageChoice)
             }
         }
     }
@@ -83,6 +243,7 @@ struct HomeView: View {
 
 struct TerminalView: View {
     let server: ServerItem
+    let strings: AppStrings
     @State private var output: String = ""
     @State private var input: String = ""
 
@@ -96,17 +257,17 @@ struct TerminalView: View {
             }
             Divider()
             HStack {
-                TextField("Command...", text: $input)
+                TextField(strings.commandPlaceholder, text: $input)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
                     .onSubmit { sendCommand() }
-                Button("Send") { sendCommand() }
+                Button(strings.send) { sendCommand() }
             }
             .padding(8)
         }
         .navigationTitle(server.name)
         .onAppear {
-            output = "Connecting to \(server.host):\(server.port)...\n"
+            output = strings.connectingTo(server.host, port: server.port)
             // SSH connection would be handled via NMSSH or libssh2 binding
         }
     }
@@ -115,6 +276,38 @@ struct TerminalView: View {
         guard !input.isEmpty else { return }
         output += "$ \(input)\n"
         input = ""
+    }
+}
+
+struct SettingsView: View {
+    @Binding var languageChoice: AppLanguageChoice
+    @Environment(\.dismiss) private var dismiss
+
+    private var strings: AppStrings {
+        appStrings(for: resolvedLanguage(for: languageChoice))
+    }
+
+    var body: some View {
+        Form {
+            Section(strings.languageTitle) {
+                Picker(strings.languageTitle, selection: $languageChoice) {
+                    Text(strings.followSystem).tag(AppLanguageChoice.system)
+                    Text(strings.languageEnglish).tag(AppLanguageChoice.english)
+                    Text(strings.languageChinese).tag(AppLanguageChoice.chinese)
+                }
+                Text(strings.systemLanguageDetected(systemLanguageName(for: strings)))
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .navigationTitle(strings.settings)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(strings.done) {
+                    dismiss()
+                }
+            }
+        }
     }
 }
 

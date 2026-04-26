@@ -16,6 +16,12 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 import org.json.JSONObject
 
+private enum class AppScreen {
+    LOGIN,
+    HOME,
+    SETTINGS,
+}
+
 class MainActivity : ComponentActivity() {
     companion object {
         init {
@@ -36,20 +42,30 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 var servers by remember { mutableStateOf(loadServers()) }
-                var screen by remember { mutableStateOf(if (hostsyncIsLoggedIn() == 1) "home" else "login") }
+                var screen by remember {
+                    mutableStateOf(if (hostsyncIsLoggedIn() == 1) AppScreen.HOME else AppScreen.LOGIN)
+                }
+                var settingsReturnScreen by remember { mutableStateOf(screen) }
+                var languageSetting by remember { mutableStateOf(LanguagePrefs.load(this)) }
+                val strings = LanguagePrefs.strings(this, languageSetting)
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (screen) {
-                        "login" -> LoginScreen(
+                        AppScreen.LOGIN -> LoginScreen(
+                            strings = strings,
                             onLogin = {
                                 // Device Flow: open GitHub device auth page
                                 val url = "https://github.com/login/device"
                                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            }
+                            },
+                            onOpenSettings = {
+                                settingsReturnScreen = AppScreen.LOGIN
+                                screen = AppScreen.SETTINGS
+                            },
                         )
-                        "home" -> HomeScreen(
+                        AppScreen.HOME -> HomeScreen(
+                            strings = strings,
                             servers = servers,
-                            onRefresh = { servers = loadServers() },
                             onConnect = { server ->
                                 // Launch built-in SSH terminal activity
                                 val intent = Intent(this, TerminalActivity::class.java).apply {
@@ -61,7 +77,23 @@ class MainActivity : ComponentActivity() {
                                     putExtra("privateKey", server.optString("private_key", ""))
                                 }
                                 startActivity(intent)
-                            }
+                            },
+                            onOpenSettings = {
+                                settingsReturnScreen = AppScreen.HOME
+                                screen = AppScreen.SETTINGS
+                            },
+                        )
+                        AppScreen.SETTINGS -> SettingsScreen(
+                            strings = strings,
+                            languageSetting = languageSetting,
+                            systemLanguageName = LanguagePrefs.currentSystemLanguageName(this, strings),
+                            onLanguageSelected = { selected ->
+                                languageSetting = selected
+                                LanguagePrefs.save(this, selected)
+                            },
+                            onBack = {
+                                screen = settingsReturnScreen
+                            },
                         )
                     }
                 }
@@ -77,7 +109,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun LoginScreen(onLogin: () -> Unit) {
+fun LoginScreen(
+    strings: AppStrings,
+    onLogin: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -85,32 +121,49 @@ fun LoginScreen(onLogin: () -> Unit) {
     ) {
         Text("HostSync", style = MaterialTheme.typography.headlineLarge)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Manage your Linux servers", style = MaterialTheme.typography.bodyMedium)
+        Text(strings.subtitle, style = MaterialTheme.typography.bodyMedium)
         Spacer(modifier = Modifier.height(32.dp))
         Button(onClick = onLogin) {
-            Text("Sign in with GitHub")
+            Text(strings.signInWithGitHub)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        TextButton(onClick = onOpenSettings) {
+            Text(strings.settings)
         }
     }
 }
 
 @Composable
 fun HomeScreen(
+    strings: AppStrings,
     servers: List<JSONObject>,
-    onRefresh: () -> Unit,
-    onConnect: (JSONObject) -> Unit
+    onConnect: (JSONObject) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("HostSync", style = MaterialTheme.typography.headlineSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "HostSync",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onOpenSettings) {
+                Text(strings.settings)
+            }
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
         if (servers.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No servers yet")
+                Text(strings.noServersYet)
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 itemsIndexed(servers) { _, server ->
-                    ServerCard(server = server, onConnect = { onConnect(server) })
+                    ServerCard(strings = strings, server = server, onConnect = { onConnect(server) })
                 }
             }
         }
@@ -118,7 +171,7 @@ fun HomeScreen(
 }
 
 @Composable
-fun ServerCard(server: JSONObject, onConnect: () -> Unit) {
+fun ServerCard(strings: AppStrings, server: JSONObject, onConnect: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -132,8 +185,80 @@ fun ServerCard(server: JSONObject, onConnect: () -> Unit) {
                 )
             }
             Button(onClick = onConnect) {
-                Text("Connect")
+                Text(strings.connect)
             }
         }
+    }
+}
+
+@Composable
+fun SettingsScreen(
+    strings: AppStrings,
+    languageSetting: AppLanguageSetting,
+    systemLanguageName: String,
+    onLanguageSelected: (AppLanguageSetting) -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                strings.settings,
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onBack) {
+                Text(strings.back)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(strings.languageTitle, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            strings.systemLanguageDetected(systemLanguageName),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LanguageOptionButton(
+            label = strings.followSystem,
+            selected = languageSetting == AppLanguageSetting.SYSTEM,
+            onClick = { onLanguageSelected(AppLanguageSetting.SYSTEM) }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        LanguageOptionButton(
+            label = strings.languageEnglish,
+            selected = languageSetting == AppLanguageSetting.ENGLISH,
+            onClick = { onLanguageSelected(AppLanguageSetting.ENGLISH) }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        LanguageOptionButton(
+            label = strings.languageChinese,
+            selected = languageSetting == AppLanguageSetting.CHINESE,
+            onClick = { onLanguageSelected(AppLanguageSetting.CHINESE) }
+        )
+    }
+}
+
+@Composable
+private fun LanguageOptionButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = if (selected) {
+        ButtonDefaults.buttonColors()
+    } else {
+        ButtonDefaults.outlinedButtonColors()
+    }
+
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = colors,
+    ) {
+        Text(label)
     }
 }

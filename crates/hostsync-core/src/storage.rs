@@ -121,6 +121,10 @@ fn proxy_path() -> PathBuf {
     data_dir().join("proxy.txt")
 }
 
+fn language_path() -> PathBuf {
+    data_dir().join("language.txt")
+}
+
 /// Load saved proxy URL (e.g. "http://127.0.0.1:10808" or "socks5://127.0.0.1:1080").
 /// Returns None if no proxy is configured.
 pub fn load_proxy() -> Option<String> {
@@ -138,5 +142,24 @@ pub fn save_proxy(proxy: &str) -> std::io::Result<()> {
         Ok(())
     } else {
         std::fs::write(proxy_path(), proxy.trim())
+    }
+}
+
+/// Load saved UI language preference ("system", "en", or "zh").
+pub fn load_language_setting() -> Option<String> {
+    std::fs::read_to_string(language_path())
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Save UI language preference. Pass empty string to clear.
+pub fn save_language_setting(language: &str) -> std::io::Result<()> {
+    ensure_dir()?;
+    if language.trim().is_empty() {
+        let _ = std::fs::remove_file(language_path());
+        Ok(())
+    } else {
+        std::fs::write(language_path(), language.trim())
     }
 }

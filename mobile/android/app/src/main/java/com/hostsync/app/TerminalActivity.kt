@@ -31,6 +31,7 @@ class TerminalActivity : ComponentActivity() {
         val authType = intent.getStringExtra("authType") ?: "password"
         val password = intent.getStringExtra("password") ?: ""
         val privateKey = intent.getStringExtra("privateKey") ?: ""
+        val strings = LanguagePrefs.strings(this, LanguagePrefs.load(this))
 
         val scrollView = ScrollView(this)
         val terminalOutput = TextView(this).apply {
@@ -42,7 +43,7 @@ class TerminalActivity : ComponentActivity() {
         scrollView.addView(terminalOutput)
 
         val inputField = EditText(this).apply {
-            hint = "Type command..."
+            hint = strings.commandHint
             isSingleLine = true
             setOnKeyListener { _, keyCode, event ->
                 if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
@@ -64,7 +65,7 @@ class TerminalActivity : ComponentActivity() {
         }
         setContentView(layout)
 
-        terminalOutput.append("Connecting to $host:$port...\n")
+        terminalOutput.append(strings.connectingTo(host, port))
 
         thread {
             try {
@@ -97,9 +98,9 @@ class TerminalActivity : ComponentActivity() {
                         }
                     }
                 }
-                runOnUiThread { terminalOutput.append("\n[Connection closed]\n") }
+                runOnUiThread { terminalOutput.append(strings.connectionClosed()) }
             } catch (e: Exception) {
-                runOnUiThread { terminalOutput.append("\n[Error: ${e.message}]\n") }
+                runOnUiThread { terminalOutput.append(strings.error(e.message ?: "unknown")) }
             }
         }
     }

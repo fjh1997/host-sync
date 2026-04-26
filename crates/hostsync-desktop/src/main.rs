@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod i18n;
 mod ui;
 
 use hostsync_core::storage;
@@ -19,10 +20,15 @@ enum Screen {
     Home,
     AddEdit(Option<usize>),
     ImportPaste,
-    ProxySettings { from_login: bool },
+    Settings {
+        from_login: bool,
+    },
     /// Prompt user to set or enter a sync passphrase.
     /// `is_new` = true means first-time setup (set); false means entering existing passphrase.
-    SyncPassphrase { is_new: bool, next_action: PassphraseAction },
+    SyncPassphrase {
+        is_new: bool,
+        next_action: PassphraseAction,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +40,8 @@ enum PassphraseAction {
 struct App {
     screen: Screen,
     servers: Vec<hostsync_core::model::Server>,
+    language_setting: i18n::LanguageSetting,
+    language: i18n::Language,
     search: String,
     // Form fields
     form_name: String,
@@ -67,6 +75,7 @@ enum Msg {
     GoAdd,
     GoEdit(usize),
     GoImportPaste,
+    GoSettings,
     // Auth
     Login,
     DeviceCodeReceived(Result<hostsync_core::auth::DeviceCode, String>),
@@ -103,8 +112,8 @@ enum Msg {
     ExportClipboard,
     ExportSystem,
     PasteTextChanged(text_editor::Action),
-    // Proxy
-    GoProxy,
+    LanguageSelected(i18n::LanguageSetting),
+    // Settings
     ProxyInput(String),
     ProxySave,
     // Sync passphrase
@@ -118,6 +127,10 @@ enum Msg {
 impl App {
     fn new() -> (Self, Task<Msg>) {
         let logged_in = storage::is_logged_in();
+        let language_setting =
+            i18n::LanguageSetting::from_storage(storage::load_language_setting().as_deref());
+        let language = i18n::resolve_language(language_setting);
+        let i18n = i18n::I18n::new(language);
         // Always start with local cache; if logged in, immediately sync from cloud
         let servers = storage::load_servers();
         let task = if logged_in {
@@ -130,8 +143,14 @@ impl App {
         };
         (
             Self {
-                screen: if logged_in { Screen::Home } else { Screen::Login },
+                screen: if logged_in {
+                    Screen::Home
+                } else {
+                    Screen::Login
+                },
                 servers,
+                language_setting,
+                language,
                 search: String::new(),
                 form_name: String::new(),
                 form_host: String::new(),
@@ -144,7 +163,11 @@ impl App {
                 form_passphrase: String::new(),
                 form_notes: text_editor::Content::new(),
                 paste_text: text_editor::Content::new(),
-                status_msg: if logged_in { "Syncing from cloud...".into() } else { String::new() },
+                status_msg: if logged_in {
+                    i18n.syncing_from_cloud().into()
+                } else {
+                    String::new()
+                },
                 syncing: logged_in,
                 device_user_code: String::new(),
                 logging_in: false,
@@ -153,6 +176,10 @@ impl App {
             },
             task,
         )
+    }
+
+    fn i18n(&self) -> i18n::I18n {
+        i18n::I18n::new(self.language)
     }
 
     fn clear_form(&mut self) {
@@ -177,7 +204,8 @@ impl App {
         self.form_auth_type = s.auth_type.clone();
         self.form_password = s.password.clone().unwrap_or_default();
         self.form_identity_file = s.identity_file.clone().unwrap_or_default();
-        self.form_private_key = text_editor::Content::with_text(&s.private_key.clone().unwrap_or_default());
+        self.form_private_key =
+            text_editor::Content::with_text(&s.private_key.clone().unwrap_or_default());
         self.form_passphrase = s.passphrase.clone().unwrap_or_default();
         self.form_notes = text_editor::Content::with_text(&s.notes.clone().unwrap_or_default());
     }
@@ -203,7 +231,7 @@ impl App {
         let server_id = edit_idx
             .map(|i| self.servers[i].id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        
+
         let server = hostsync_core::model::Server {
             id: server_id.clone(),
             name: self.form_name.trim().to_string(),
@@ -252,9 +280,7 @@ impl App {
                     Some(text)
                 }
             },
-            created_at: edit_idx
-                .map(|i| self.servers[i].created_at)
-                .unwrap_or(now),
+            created_at: edit_idx.map(|i| self.servers[i].created_at).unwrap_or(now),
             updated_at: now,
         };
 
@@ -270,7 +296,7 @@ impl App {
         match msg {
             Msg::GoHome => {
                 // If coming from proxy settings, return to the correct screen
-                if let Screen::ProxySettings { from_login: true } = self.screen {
+                if let Screen::Settings { from_login: true } = self.screen {
                     self.screen = Screen::Login;
                 } else {
                     self.screen = Screen::Home;
@@ -291,7 +317,7 @@ impl App {
             }
             Msg::Login => {
                 self.logging_in = true;
-                self.status_msg = "Requesting device code...".into();
+                self.status_msg = self.i18n().requesting_device_code().into();
                 return Task::perform(
                     async { hostsync_core::auth::request_device_code().await },
                     Msg::DeviceCodeReceived,
@@ -300,10 +326,9 @@ impl App {
             Msg::DeviceCodeReceived(result) => match result {
                 Ok(dc) => {
                     self.device_user_code = dc.user_code.clone();
-                    self.status_msg = format!(
-                        "Open {} and enter code: {}",
-                        dc.verification_uri, dc.user_code
-                    );
+                    self.status_msg = self
+                        .i18n()
+                        .open_and_enter_code(&dc.verification_uri, &dc.user_code);
                     // Copy code to clipboard for convenience
                     if let Ok(mut clip) = arboard::Clipboard::new() {
                         let _ = clip.set_text(&dc.user_code);
@@ -318,7 +343,7 @@ impl App {
                 }
                 Err(e) => {
                     self.logging_in = false;
-                    self.status_msg = format!("Failed: {}", e);
+                    self.status_msg = self.i18n().failed(&e);
                 }
             },
             Msg::LoginDone(result) => {
@@ -327,14 +352,14 @@ impl App {
                 match result {
                     Ok(_) => {
                         self.screen = Screen::Home;
-                        self.status_msg = "Syncing from cloud...".into();
+                        self.status_msg = self.i18n().syncing_from_cloud().into();
                         self.syncing = true;
                         return Task::perform(
                             async { hostsync_core::sync::download(None).await },
                             Msg::SyncDownloadDone,
                         );
                     }
-                    Err(e) => self.status_msg = format!("Login failed: {}", e),
+                    Err(e) => self.status_msg = self.i18n().login_failed(&e),
                 }
             }
             Msg::Logout => {
@@ -345,7 +370,7 @@ impl App {
             Msg::Connect(idx) => {
                 let server = &self.servers[idx];
                 if let Err(e) = hostsync_core::terminal::launch_native_terminal(server) {
-                    self.status_msg = format!("Failed: {}", e);
+                    self.status_msg = self.i18n().failed(&e);
                 }
             }
             Msg::CopyCommand(idx) => {
@@ -358,14 +383,14 @@ impl App {
                 }
                 if let Ok(mut clip) = arboard::Clipboard::new() {
                     let _ = clip.set_text(cmd);
-                    self.status_msg = "Command copied to clipboard".into();
+                    self.status_msg = self.i18n().command_copied().into();
                 }
             }
             Msg::Delete(idx) => {
                 self.servers.remove(idx);
                 let _ = storage::save_servers(&self.servers);
                 self.syncing = true;
-                self.status_msg = "Syncing...".into();
+                self.status_msg = self.i18n().syncing().into();
                 return Task::perform(
                     async { hostsync_core::sync::upload(None).await },
                     Msg::SyncUploadDone,
@@ -385,10 +410,11 @@ impl App {
             Msg::FormIdentityFile(s) => self.form_identity_file = s,
             Msg::FormPrivateKey(action) => self.form_private_key.perform(action),
             Msg::FormBrowsePrivateKey => {
+                let dialog_title = self.i18n().select_ssh_key_file().to_string();
                 return Task::perform(
-                    async {
+                    async move {
                         let file = rfd::AsyncFileDialog::new()
-                            .set_title("Select SSH Key File")
+                            .set_title(&dialog_title)
                             .pick_file()
                             .await;
                         if let Some(f) = file {
@@ -417,7 +443,7 @@ impl App {
                     self.save_form(edit_idx);
                     self.screen = Screen::Home;
                     self.syncing = true;
-                    self.status_msg = "Syncing...".into();
+                    self.status_msg = self.i18n().syncing().into();
                     return Task::perform(
                         async { hostsync_core::sync::upload(None).await },
                         Msg::SyncUploadDone,
@@ -434,7 +460,7 @@ impl App {
                     return Task::none();
                 }
                 self.syncing = true;
-                self.status_msg = "Uploading...".into();
+                self.status_msg = self.i18n().uploading().into();
                 return Task::perform(
                     async { hostsync_core::sync::upload(None).await },
                     Msg::SyncUploadDone,
@@ -443,7 +469,7 @@ impl App {
             Msg::SyncUploadDone(r) => {
                 self.syncing = false;
                 match &r {
-                    Ok(_) => self.status_msg = "Uploaded to cloud".into(),
+                    Ok(_) => self.status_msg = self.i18n().uploaded_to_cloud().into(),
                     Err(e) if e == hostsync_core::sync::ERR_NEED_PASSPHRASE => {
                         self.sync_passphrase_input.clear();
                         self.screen = Screen::SyncPassphrase {
@@ -451,12 +477,12 @@ impl App {
                             next_action: PassphraseAction::Upload,
                         };
                     }
-                    Err(e) => self.status_msg = format!("Upload failed: {}", e),
+                    Err(e) => self.status_msg = self.i18n().upload_failed(e),
                 }
             }
             Msg::SyncDownload => {
                 self.syncing = true;
-                self.status_msg = "Downloading...".into();
+                self.status_msg = self.i18n().downloading().into();
                 return Task::perform(
                     async { hostsync_core::sync::download(None).await },
                     Msg::SyncDownloadDone,
@@ -467,7 +493,7 @@ impl App {
                 match &r {
                     Ok(_) => {
                         self.servers = storage::load_servers();
-                        self.status_msg = "Downloaded from cloud".into();
+                        self.status_msg = self.i18n().downloaded_from_cloud().into();
                     }
                     Err(e) if e == hostsync_core::sync::ERR_NEED_PASSPHRASE => {
                         self.sync_passphrase_input.clear();
@@ -477,7 +503,7 @@ impl App {
                             next_action: PassphraseAction::Download,
                         };
                     }
-                    Err(e) => self.status_msg = format!("Download failed: {}", e),
+                    Err(e) => self.status_msg = self.i18n().download_failed(e),
                 }
             }
             Msg::ImportSystem => {
@@ -500,13 +526,13 @@ impl App {
                 self.screen = Screen::Home;
                 if added > 0 {
                     self.syncing = true;
-                    self.status_msg = format!("Imported {} host(s), syncing...", added);
+                    self.status_msg = self.i18n().imported_hosts_syncing(added);
                     return Task::perform(
                         async { hostsync_core::sync::upload(None).await },
                         Msg::SyncUploadDone,
                     );
                 } else {
-                    self.status_msg = "No new hosts to import".into();
+                    self.status_msg = self.i18n().no_new_hosts_to_import().into();
                 }
             }
             Msg::ImportPasteConfirm => {
@@ -524,49 +550,58 @@ impl App {
                 self.screen = Screen::Home;
                 if added > 0 {
                     self.syncing = true;
-                    self.status_msg = format!("Imported {} host(s), syncing...", added);
+                    self.status_msg = self.i18n().imported_hosts_syncing(added);
                     return Task::perform(
                         async { hostsync_core::sync::upload(None).await },
                         Msg::SyncUploadDone,
                     );
                 } else {
-                    self.status_msg = "No new hosts to import".into();
+                    self.status_msg = self.i18n().no_new_hosts_to_import().into();
                 }
             }
             Msg::ExportClipboard => {
                 let config = hostsync_core::ssh_config::generate(&self.servers);
                 if let Ok(mut clip) = arboard::Clipboard::new() {
                     let _ = clip.set_text(config);
-                    self.status_msg = "SSH config copied to clipboard".into();
+                    self.status_msg = self.i18n().ssh_config_copied().into();
                 }
             }
             Msg::ExportSystem => {
                 match hostsync_core::ssh_config::merge_into_system_config(&self.servers) {
-                    Ok(_) => self.status_msg = "Merged into ~/.ssh/config".into(),
-                    Err(e) => self.status_msg = format!("Export failed: {}", e),
+                    Ok(_) => self.status_msg = self.i18n().merged_into_system_config().into(),
+                    Err(e) => self.status_msg = self.i18n().export_failed(&e.to_string()),
                 }
             }
             Msg::PasteTextChanged(action) => self.paste_text.perform(action),
-            Msg::GoProxy => {
+            Msg::GoSettings => {
                 let from_login = matches!(self.screen, Screen::Login);
                 self.proxy_input = storage::load_proxy().unwrap_or_default();
-                self.screen = Screen::ProxySettings { from_login };
+                self.screen = Screen::Settings { from_login };
+            }
+            Msg::LanguageSelected(setting) => {
+                self.language_setting = setting;
+                self.language = i18n::resolve_language(setting);
+                let _ = storage::save_language_setting(setting.as_storage_value());
             }
             Msg::ProxyInput(s) => self.proxy_input = s,
             Msg::ProxySave => {
                 let _ = storage::save_proxy(&self.proxy_input);
                 self.status_msg = if self.proxy_input.trim().is_empty() {
-                    "Proxy cleared".into()
+                    self.i18n().proxy_cleared().into()
                 } else {
-                    format!("Proxy set to {}", self.proxy_input.trim())
+                    self.i18n().proxy_set_to(self.proxy_input.trim())
                 };
-                let from_login = matches!(self.screen, Screen::ProxySettings { from_login: true });
-                self.screen = if from_login { Screen::Login } else { Screen::Home };
+                let from_login = matches!(self.screen, Screen::Settings { from_login: true });
+                self.screen = if from_login {
+                    Screen::Login
+                } else {
+                    Screen::Home
+                };
             }
             Msg::SyncPassphraseInput(s) => self.sync_passphrase_input = s,
             Msg::SyncPassphraseConfirm => {
                 if self.sync_passphrase_input.trim().is_empty() {
-                    self.status_msg = "Passphrase cannot be empty".into();
+                    self.status_msg = self.i18n().passphrase_cannot_be_empty().into();
                     return Task::none();
                 }
                 let pp = self.sync_passphrase_input.clone();
@@ -580,7 +615,7 @@ impl App {
                             let _ = storage::save_servers(&servers);
                             self.screen = Screen::Home;
                             self.syncing = true;
-                            self.status_msg = "Uploading...".into();
+                            self.status_msg = self.i18n().uploading().into();
                             return Task::perform(
                                 async move { hostsync_core::sync::upload(None).await },
                                 Msg::SyncUploadDone,
@@ -589,7 +624,7 @@ impl App {
                         PassphraseAction::Download => {
                             self.screen = Screen::Home;
                             self.syncing = true;
-                            self.status_msg = "Downloading...".into();
+                            self.status_msg = self.i18n().downloading().into();
                             return Task::perform(
                                 async move { hostsync_core::sync::download(Some(&pp)).await },
                                 Msg::SyncDownloadDone,
@@ -604,14 +639,22 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Msg> {
+        let i18n = self.i18n();
         match &self.screen {
-            Screen::Login => ui::login_view(&self.status_msg, &self.device_user_code, self.logging_in),
-            Screen::Home => ui::home_view(self),
-            Screen::AddEdit(edit_idx) => ui::form_view(self, *edit_idx),
-            Screen::ImportPaste => ui::paste_view(&self.paste_text),
-            Screen::ProxySettings { .. } => ui::proxy_view(&self.proxy_input),
+            Screen::Login => ui::login_view(
+                &self.status_msg,
+                &self.device_user_code,
+                self.logging_in,
+                i18n,
+            ),
+            Screen::Home => ui::home_view(self, i18n),
+            Screen::AddEdit(edit_idx) => ui::form_view(self, *edit_idx, i18n),
+            Screen::ImportPaste => ui::paste_view(&self.paste_text, i18n),
+            Screen::Settings { .. } => {
+                ui::settings_view(&self.proxy_input, self.language_setting, i18n)
+            }
             Screen::SyncPassphrase { is_new, .. } => {
-                ui::passphrase_view(&self.sync_passphrase_input, *is_new, &self.status_msg)
+                ui::passphrase_view(&self.sync_passphrase_input, *is_new, &self.status_msg, i18n)
             }
         }
     }
