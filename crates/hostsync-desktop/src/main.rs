@@ -389,7 +389,7 @@ impl App {
                 let cmd = if let Some(ref pw) = s.password {
                     if !pw.is_empty() {
                         let escaped = pw.replace('\'', "'\\''");
-                        format!("sshpass -p '{}' ssh {}", escaped, ssh_args)
+                        format!("sshpass -p '{}' ssh -tt -o PreferredAuthentications=password {}", escaped, ssh_args)
                     } else {
                         format!("ssh {}", ssh_args)
                     }
