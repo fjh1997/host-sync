@@ -332,10 +332,18 @@ pub fn form_view(app: &App, edit_idx: Option<usize>, i18n: I18n) -> Element<'_, 
             .push(
                 column![
                     t!(i18n.key_passphrase_optional()).size(13),
-                    text_input("", &app.form_passphrase)
-                        .on_input(Msg::FormPassphrase)
-                        .padding(10)
-                        .secure(true),
+                    row![
+                        text_input("", &app.form_passphrase)
+                            .on_input(Msg::FormPassphrase)
+                            .padding(10)
+                            .secure(!app.show_password)
+                            .width(Length::Fill),
+                        button(t!(if app.show_password { i18n.hide() } else { i18n.show() }).size(13))
+                            .on_press(Msg::ToggleShowPassword)
+                            .padding([10, 12]),
+                    ]
+                    .spacing(4)
+                    .align_y(Alignment::Center),
                 ]
                 .spacing(4),
             );
@@ -343,10 +351,18 @@ pub fn form_view(app: &App, edit_idx: Option<usize>, i18n: I18n) -> Element<'_, 
         fields = fields.push(
             column![
                 t!(i18n.password()).size(13),
-                text_input("", &app.form_password)
-                    .on_input(Msg::FormPassword)
-                    .padding(10)
-                    .secure(true),
+                row![
+                    text_input("", &app.form_password)
+                        .on_input(Msg::FormPassword)
+                        .padding(10)
+                        .secure(!app.show_password)
+                        .width(Length::Fill),
+                    button(t!(if app.show_password { i18n.hide() } else { i18n.show() }).size(13))
+                        .on_press(Msg::ToggleShowPassword)
+                        .padding([10, 12]),
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
             ]
             .spacing(4),
         );

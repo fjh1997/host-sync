@@ -54,6 +54,7 @@ struct App {
     form_private_key: text_editor::Content,
     form_passphrase: String,
     form_notes: text_editor::Content,
+    show_password: bool,
     // Import
     paste_text: text_editor::Content,
     // Status
@@ -98,6 +99,7 @@ enum Msg {
     FormBrowsePrivateKey,
     FormBrowsePrivateKeyDone(Option<(String, String)>), // (path, content)
     FormPassphrase(String),
+    ToggleShowPassword,
     FormNotes(text_editor::Action),
     FormSave,
     // Sync
@@ -162,6 +164,7 @@ impl App {
                 form_private_key: text_editor::Content::new(),
                 form_passphrase: String::new(),
                 form_notes: text_editor::Content::new(),
+                show_password: false,
                 paste_text: text_editor::Content::new(),
                 status_msg: if logged_in {
                     i18n.syncing_from_cloud().into()
@@ -305,10 +308,12 @@ impl App {
             }
             Msg::GoAdd => {
                 self.clear_form();
+                self.show_password = false;
                 self.screen = Screen::AddEdit(None);
             }
             Msg::GoEdit(idx) => {
                 self.load_form_from(idx);
+                self.show_password = false;
                 self.screen = Screen::AddEdit(Some(idx));
             }
             Msg::GoImportPaste => {
@@ -447,6 +452,7 @@ impl App {
                 }
             }
             Msg::FormPassphrase(s) => self.form_passphrase = s,
+            Msg::ToggleShowPassword => self.show_password = !self.show_password,
             Msg::FormNotes(action) => self.form_notes.perform(action),
             Msg::FormSave => {
                 if let Screen::AddEdit(edit_idx) = self.screen {

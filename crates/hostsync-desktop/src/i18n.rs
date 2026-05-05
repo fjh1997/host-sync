@@ -272,6 +272,20 @@ impl I18n {
         }
     }
 
+    pub fn show(self) -> &'static str {
+        match self.language {
+            Language::English => "Show",
+            Language::Chinese => "显示",
+        }
+    }
+
+    pub fn hide(self) -> &'static str {
+        match self.language {
+            Language::English => "Hide",
+            Language::Chinese => "隐藏",
+        }
+    }
+
     pub fn ssh_key(self) -> &'static str {
         match self.language {
             Language::English => "SSH Key",
