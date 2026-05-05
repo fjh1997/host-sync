@@ -375,12 +375,22 @@ impl App {
             }
             Msg::CopyCommand(idx) => {
                 let s = &self.servers[idx];
-                let mut cmd = format!("ssh -p {} {}@{}", s.port, s.username, s.host);
+                let mut ssh_args = format!("-p {} {}@{}", s.port, s.username, s.host);
                 if let Some(ref id_file) = s.identity_file {
                     if !id_file.is_empty() {
-                        cmd = format!("ssh -i {} -p {} {}@{}", id_file, s.port, s.username, s.host);
+                        ssh_args = format!("-i {} -p {} {}@{}", id_file, s.port, s.username, s.host);
                     }
                 }
+                let cmd = if let Some(ref pw) = s.password {
+                    if !pw.is_empty() {
+                        let escaped = pw.replace('\'', "'\\''");
+                        format!("sshpass -p '{}' ssh {}", escaped, ssh_args)
+                    } else {
+                        format!("ssh {}", ssh_args)
+                    }
+                } else {
+                    format!("ssh {}", ssh_args)
+                };
                 if let Ok(mut clip) = arboard::Clipboard::new() {
                     let _ = clip.set_text(cmd);
                     self.status_msg = self.i18n().command_copied().into();
