@@ -102,7 +102,7 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         if let Some(pw) = password {
-            let mut sshpass_args = vec!["-e".to_string(), "ssh".to_string()];
+            let mut sshpass_args = vec!["-e".to_string(), "ssh".to_string(), "-tt".to_string()];
             sshpass_args.extend(ssh_args.clone());
 
             // Try Windows Terminal (wt) with sshpass
@@ -149,7 +149,7 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
             // Use export SSHPASS to pass the password to sshpass -e
             let escaped_pw = pw.replace("'", "'\\''");
             format!(
-                "tell application \"Terminal\" to do script \"export SSHPASS='{}'; sshpass -e ssh {}\"",
+                "tell application \"Terminal\" to do script \"export SSHPASS='{}'; sshpass -e ssh -tt {}\"",
                 escaped_pw, escaped_args
             )
         } else {
@@ -173,7 +173,7 @@ pub fn launch_native_terminal(server: &Server) -> Result<(), String> {
                 let mut cmd = Command::new(term);
                 cmd.env("SSHPASS", pw);
                 
-                let mut full_args = vec!["sshpass".to_string(), "-e".to_string(), "ssh".to_string()];
+                let mut full_args = vec!["sshpass".to_string(), "-e".to_string(), "ssh".to_string(), "-tt".to_string()];
                 full_args.extend(ssh_args.clone());
 
                 match *term {
