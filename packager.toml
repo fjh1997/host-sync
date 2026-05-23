@@ -1,0 +1,22 @@
+name = "hostsync-desktop"
+product-name = "HostSync"
+version = "1.0.0"
+identifier = "com.hostsync.app"
+publisher = "HostSync"
+description = "Secure SSH server and key manager"
+long-description = """
+HostSync securely manages, syncs, and connects to Linux servers with encrypted
+SSH keys, passwords, and configs across devices.
+"""
+category = "DeveloperTool"
+formats = ["nsis"]
+out-dir = "./dist"
+binaries-dir = "./target/release"
+icons = ["altstore/icon.png"]
+
+[[binaries]]
+path = "hostsync"
+main = true
+
+[nsis]
+installer-mode = "perMachine"

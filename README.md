@@ -76,6 +76,37 @@ Download from [Releases](https://github.com/fjh1997/host-sync/releases):
 | Android  | `HostSync.apk` (all ABIs) | |
 | iOS      | AltStore (see below) | |
 
+### Windows
+
+Build the desktop app and create a Start menu shortcut for the current user:
+
+构建桌面端并为当前用户创建开始菜单快捷方式：
+
+```powershell
+cargo build --release -p hostsync-desktop
+powershell -ExecutionPolicy Bypass -File scripts\install-windows-start-menu.ps1
+```
+
+After this, searching `hostsync` or `HostSync` in the Start menu launches the app.
+
+完成后，在开始菜单搜索 `hostsync` 或 `HostSync` 即可启动应用。
+
+To build a Windows installer that installs to `C:\Program Files\HostSync` and creates
+the Start menu entry:
+
+构建会安装到 `C:\Program Files\HostSync` 并创建开始菜单入口的 Windows 安装器：
+
+```powershell
+cargo install cargo-packager --locked
+cargo build --release -p hostsync-desktop
+cargo packager -f nsis --release
+```
+
+Run the generated installer as Administrator for the same per-machine behavior as
+apps installed under `Program Files`.
+
+以管理员身份运行生成的安装器，即可获得和安装到 `Program Files` 的应用一致的全局安装行为。
+
 ### macOS
 
 Download the `.dmg`, open it, drag **HostSync** to **Applications**.
