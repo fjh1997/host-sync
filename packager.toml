@@ -1,6 +1,6 @@
 name = "hostsync-desktop"
 product-name = "HostSync"
-version = "1.0.0"
+version = "1.0.1"
 identifier = "com.hostsync.app"
 publisher = "HostSync"
 description = "Secure SSH server and key manager"

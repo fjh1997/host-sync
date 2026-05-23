@@ -112,8 +112,17 @@ jobs:
         run: tar czf HostSync-${{ github.ref_name }}-${{ matrix.name }}.tar.gz -C target/${{ matrix.target }}/release ${{ matrix.artifact }}
 
       - name: Package (Windows)
+        id: windows-installer
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path target/${{ matrix.target }}/release/${{ matrix.artifact }} -DestinationPath HostSync-${{ github.ref_name }}-${{ matrix.name }}.zip
+        shell: pwsh
+        run: |
+          $Version = "${{ github.ref_name }}".TrimStart("v")
+          cargo install cargo-packager --version 0.11.8 --locked
+          ./scripts/package-windows-installer.ps1 `
+            -Version $Version `
+            -Target "${{ matrix.target }}" `
+            -OutDirSuffix "${{ matrix.name }}" `
+            -OutputName "HostSync-${{ github.ref_name }}-${{ matrix.name }}-setup.exe"
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
@@ -122,10 +131,16 @@ jobs:
           path: HostSync-${{ github.ref_name }}-${{ matrix.name }}.dmg
 
       - uses: actions/upload-artifact@v4
-        if: runner.os != 'macOS'
+        if: runner.os == 'Linux'
         with:
           name: hostsync-${{ matrix.name }}
           path: HostSync-${{ github.ref_name }}-${{ matrix.name }}.*
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: hostsync-${{ matrix.name }}
+          path: ${{ steps.windows-installer.outputs.installer_path }}
 
   build-android:
     name: Android APK
@@ -226,8 +241,8 @@ jobs:
           files: |
             artifacts/hostsync-linux-x64/HostSync-${{ github.ref_name }}-linux-x64.tar.gz
             artifacts/hostsync-linux-arm64/HostSync-${{ github.ref_name }}-linux-arm64.tar.gz
-            artifacts/hostsync-windows-x64/HostSync-${{ github.ref_name }}-windows-x64.zip
-            artifacts/hostsync-windows-arm64/HostSync-${{ github.ref_name }}-windows-arm64.zip
+            artifacts/hostsync-windows-x64/HostSync-${{ github.ref_name }}-windows-x64-setup.exe
+            artifacts/hostsync-windows-arm64/HostSync-${{ github.ref_name }}-windows-arm64-setup.exe
             artifacts/hostsync-macos-x64/HostSync-${{ github.ref_name }}-macos-x64.dmg
             artifacts/hostsync-macos-arm64/HostSync-${{ github.ref_name }}-macos-arm64.dmg
             artifacts/android-apk/HostSync-${{ github.ref_name }}.apk

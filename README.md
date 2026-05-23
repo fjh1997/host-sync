@@ -70,7 +70,7 @@ Download from [Releases](https://github.com/fjh1997/host-sync/releases):
 
 | Platform / 平台 | x86_64 | ARM64 |
 |----------|--------|-------|
-| Windows  | `hostsync-windows-x64.zip` | `hostsync-windows-arm64.zip` |
+| Windows  | `HostSync-vX.Y.Z-windows-x64-setup.exe` | `HostSync-vX.Y.Z-windows-arm64-setup.exe` |
 | Linux    | `hostsync-linux-x64.tar.gz` | `hostsync-linux-arm64.tar.gz` |
 | macOS    | `HostSync-macos-x64.dmg` | `HostSync-macos-arm64.dmg` |
 | Android  | `HostSync.apk` (all ABIs) | |

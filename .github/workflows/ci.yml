@@ -150,10 +150,29 @@ jobs:
           path: HostSync-${{ needs.changes.outputs.version }}-${{ needs.changes.outputs.sha }}-${{ matrix.name }}.dmg
 
       - uses: actions/upload-artifact@v4
-        if: runner.os != 'macOS'
+        if: runner.os == 'Linux'
         with:
           name: hostsync-${{ matrix.name }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
+
+      - name: Package Windows installer
+        id: windows-installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Version = "${{ needs.changes.outputs.version }}"
+          cargo install cargo-packager --version 0.11.8 --locked
+          ./scripts/package-windows-installer.ps1 `
+            -Version $Version `
+            -Target "${{ matrix.target }}" `
+            -OutDirSuffix "${{ matrix.name }}" `
+            -OutputName "HostSync-${Version}-${{ needs.changes.outputs.sha }}-${{ matrix.name }}-setup.exe"
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: hostsync-${{ matrix.name }}-installer
+          path: ${{ steps.windows-installer.outputs.installer_path }}
 
   build-android:
     name: Android APK
@@ -291,9 +310,6 @@ jobs:
           for dir in hostsync-linux-*; do
             [ -d "$dir" ] && chmod +x "$dir/hostsync" && tar czf "HostSync-${VER}-${SHA}-${dir#hostsync-}.tar.gz" -C "$dir" hostsync
           done
-          for dir in hostsync-windows-*; do
-            [ -d "$dir" ] && (cd "$dir" && zip "../HostSync-${VER}-${SHA}-${dir#hostsync-}.zip" hostsync.exe)
-          done
       - name: Create Pre-release
         uses: softprops/action-gh-release@v2
         env:
@@ -307,8 +323,8 @@ jobs:
           files: |
             artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-linux-x64.tar.gz
             artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-linux-arm64.tar.gz
-            artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-windows-x64.zip
-            artifacts/HostSync-${{ env.VER }}-${{ env.SHA }}-windows-arm64.zip
+            artifacts/hostsync-windows-x64-installer/HostSync-${{ env.VER }}-${{ env.SHA }}-windows-x64-setup.exe
+            artifacts/hostsync-windows-arm64-installer/HostSync-${{ env.VER }}-${{ env.SHA }}-windows-arm64-setup.exe
             artifacts/hostsync-macos-x64/HostSync-${{ env.VER }}-${{ env.SHA }}-macos-x64.dmg
             artifacts/hostsync-macos-arm64/HostSync-${{ env.VER }}-${{ env.SHA }}-macos-arm64.dmg
             artifacts/android-apk/HostSync-${{ env.VER }}-${{ env.SHA }}.apk
