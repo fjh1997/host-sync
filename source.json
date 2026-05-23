@@ -1,31 +1,27 @@
 {
   "name": "HostSync",
   "identifier": "com.hostsync.altstore",
-  "subtitle": "Linux Server Manager",
-  "description": "Cross-platform Linux server manager with SSH config compatibility.",
+  "subtitle": "SSH Key Manager & Server Sync",
+  "description": "Securely manage, sync and connect to Linux servers. SSH keys encrypted across all devices.",
   "iconURL": "https://raw.githubusercontent.com/fjh1997/host-sync/main/altstore/icon.png",
-  "headerURL": "",
   "website": "https://github.com/fjh1997/host-sync",
   "tintColor": "#607D8B",
-  "featuredApps": [],
-  "apps": [
-    {
-      "name": "HostSync",
-      "bundleIdentifier": "com.hostsync.hostSync",
-      "developerName": "fjh1997",
-      "subtitle": "Linux Server Manager",
-      "localizedDescription": "Manage your Linux servers across all devices. Features GitHub OAuth login, AES-256 encrypted storage, cloud sync via GitHub Gists, SSH config compatibility, and native terminal integration.",
-      "iconURL": "https://raw.githubusercontent.com/fjh1997/host-sync/main/altstore/icon.png",
-      "tintColor": "#607D8B",
-      "screenshots": [],
-      "versions": [],
-      "appPermissions": {
-        "entitlements": [],
-        "privacy": {
-          "NSLocalNetworkUsageDescription": "HostSync needs local network access to connect to SSH servers on your local network."
-        }
-      }
-    }
-  ],
+  "apps": [{
+    "name": "HostSync",
+    "bundleIdentifier": "com.hostsync.app",
+    "developerName": "fjh1997",
+    "subtitle": "SSH Key Manager & Server Sync",
+    "localizedDescription": "Manage your Linux servers and SSH keys across all devices. AES-256 encrypted sync.",
+    "iconURL": "https://raw.githubusercontent.com/fjh1997/host-sync/main/altstore/icon.png",
+    "tintColor": "#607D8B",
+    "versions": [{
+      "version": "1.0.1",
+      "date": "2026-05-23T12:44:46Z",
+      "localizedDescription": "HostSync v1.0.1",
+      "downloadURL": "https://github.com/fjh1997/host-sync/releases/download/v1.0.1/HostSync-v1.0.1.ipa",
+      "size": 0,
+      "minOSVersion": "16.0"
+    }]
+  }],
   "news": []
 }
