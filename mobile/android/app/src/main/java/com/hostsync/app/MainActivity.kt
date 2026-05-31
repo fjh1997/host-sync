@@ -34,6 +34,7 @@ private enum class AppScreen {
     SYNC_PASSPHRASE,
     HOME,
     SETTINGS,
+    ADD_EDIT,  // editIdx == null means add, otherwise edit
 }
 
 class MainActivity : ComponentActivity() {
@@ -96,6 +97,19 @@ class MainActivity : ComponentActivity() {
 
                 val syncScope = rememberCoroutineScope()
 
+                // Form state for add/edit
+                var editIdx by remember { mutableStateOf<Int?>(null) }
+                var formName by remember { mutableStateOf("") }
+                var formHost by remember { mutableStateOf("") }
+                var formPort by remember { mutableStateOf("22") }
+                var formUser by remember { mutableStateOf("root") }
+                var formAuthType by remember { mutableStateOf("password") }
+                var formPassword by remember { mutableStateOf("") }
+                var formIdentityFile by remember { mutableStateOf("") }
+                var formPrivateKey by remember { mutableStateOf("") }
+                var formPassphrase by remember { mutableStateOf("") }
+                var formNotes by remember { mutableStateOf("") }
+
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (screen) {
                         AppScreen.LOGIN -> LoginScreen(
@@ -137,21 +151,85 @@ class MainActivity : ComponentActivity() {
                             strings = strings,
                             servers = servers,
                             onConnect = { server ->
-                                // Launch built-in SSH terminal activity
-                                val intent = Intent(this, TerminalActivity::class.java).apply {
-                                    putExtra("host", server.getString("host"))
-                                    putExtra("port", server.optInt("port", 22))
-                                    putExtra("username", server.getString("username"))
-                                    putExtra("authType", server.optString("auth_type", "password"))
-                                    putExtra("password", server.optString("password", ""))
-                                    putExtra("privateKey", server.optString("private_key", ""))
+                                val cmd = buildSshCommand(server)
+                                launchTermux(this@MainActivity, cmd)
+                            },
+                            onCopy = { server ->
+                                val cmd = buildSshCommand(server)
+                                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("ssh_command", cmd))
+                                Toast.makeText(this@MainActivity, strings.copiedToClipboard, Toast.LENGTH_SHORT).show()
+                            },
+                            onEdit = { idx ->
+                                editIdx = idx
+                                val s = servers[idx]
+                                formName = s.optString("name", "")
+                                formHost = s.optString("host", "")
+                                formPort = s.optInt("port", 22).toString()
+                                formUser = s.optString("username", "root")
+                                formAuthType = s.optString("auth_type", "password")
+                                formPassword = s.optString("password", "")
+                                formIdentityFile = s.optString("identity_file", "")
+                                formPrivateKey = s.optString("private_key", "")
+                                formPassphrase = s.optString("passphrase", "")
+                                formNotes = s.optString("notes", "")
+                                screen = AppScreen.ADD_EDIT
+                            },
+                            onDelete = { idx ->
+                                val s = servers.toMutableList()
+                                s.removeAt(idx)
+                                servers = s
+                                saveServers(servers)
+                                syncScope.launch(Dispatchers.IO) {
+                                    this@MainActivity.syncDownload()
                                 }
-                                startActivity(intent)
                             },
                             onOpenSettings = {
                                 settingsReturnScreen = AppScreen.HOME
                                 screen = AppScreen.SETTINGS
                             },
+                        )
+                        AppScreen.ADD_EDIT -> FormScreen(
+                            strings = strings,
+                            editIdx = editIdx,
+                            name = formName, onNameChange = { formName = it },
+                            host = formHost, onHostChange = { formHost = it },
+                            port = formPort, onPortChange = { formPort = it },
+                            user = formUser, onUserChange = { formUser = it },
+                            authType = formAuthType, onAuthTypeChange = { formAuthType = it },
+                            password = formPassword, onPasswordChange = { formPassword = it },
+                            identityFile = formIdentityFile, onIdentityFileChange = { formIdentityFile = it },
+                            privateKey = formPrivateKey, onPrivateKeyChange = { formPrivateKey = it },
+                            passphrase = formPassphrase, onPassphraseChange = { formPassphrase = it },
+                            notes = formNotes, onNotesChange = { formNotes = it },
+                            onSave = {
+                                val server = JSONObject().apply {
+                                    put("id", editIdx?.let { servers[it].optString("id", "") } ?: java.util.UUID.randomUUID().toString())
+                                    put("name", formName)
+                                    put("host", formHost)
+                                    put("port", formPort.toIntOrNull() ?: 22)
+                                    put("username", formUser)
+                                    put("auth_type", formAuthType)
+                                    put("password", formPassword)
+                                    put("identity_file", formIdentityFile)
+                                    put("private_key", formPrivateKey)
+                                    put("passphrase", formPassphrase)
+                                    put("notes", formNotes)
+                                }
+                                val s = servers.toMutableList()
+                                if (editIdx != null) {
+                                    s[editIdx!!] = server
+                                } else {
+                                    s.add(server)
+                                }
+                                servers = s
+                                saveServers(servers)
+                                screen = AppScreen.HOME
+                                syncScope.launch(Dispatchers.IO) {
+                                    this@MainActivity.syncDownload()
+                                }
+                            },
+                            onBack = { screen = AppScreen.HOME },
                         )
                         AppScreen.SETTINGS -> SettingsScreen(
                             strings = strings,
@@ -177,6 +255,64 @@ class MainActivity : ComponentActivity() {
         val arr = JSONArray(json)
         return (0 until arr.length()).map { arr.getJSONObject(it) }
     }
+
+    fun saveServers(servers: List<JSONObject>) {
+        val arr = JSONArray()
+        servers.forEach { arr.put(it) }
+        hostsyncSaveServersJson(arr.toString())
+    }
+}
+
+/// Build SSH command string for a server (same logic as desktop CopyCommand)
+fun buildSshCommand(server: JSONObject): String {
+    val port = server.optInt("port", 22)
+    val user = server.optString("username", "root")
+    val host = server.optString("host", "")
+    val idFile = server.optString("identity_file", "")
+    val password = server.optString("password", "")
+
+    val sshArgs = if (idFile.isNotEmpty()) {
+        "-i $idFile -p $port $user@$host"
+    } else {
+        "-p $port $user@$host"
+    }
+
+    return if (password.isNotEmpty()) {
+        val escaped = password.replace("'", "'\\''")
+        "sshpass -p '$escaped' ssh -tt -o PreferredAuthentications=password $sshArgs"
+    } else {
+        "ssh $sshArgs"
+    }
+}
+
+/// Launch Termux to run a command
+fun launchTermux(context: Context, command: String) {
+    // Try Termux RUN_COMMAND service first
+    try {
+        val intent = Intent("com.termux.RUN_COMMAND").apply {
+            setPackage("com.termux")
+            putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", command))
+            putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home")
+            putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+        }
+        context.startService(intent)
+        return
+    } catch (_: Exception) {}
+
+    // Fallback: try launching TermuxActivity directly
+    try {
+        val intent = Intent().apply {
+            setClassName("com.termux", "com.termux.app.TermuxActivity")
+        }
+        context.startActivity(intent)
+        return
+    } catch (_: Exception) {}
+
+    // Fallback: copy command to clipboard
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("ssh_command", command))
+    Toast.makeText(context, "Termux not found. Command copied to clipboard.", Toast.LENGTH_LONG).show()
 }
 
 @Composable
@@ -467,8 +603,13 @@ fun HomeScreen(
     strings: AppStrings,
     servers: List<JSONObject>,
     onConnect: (JSONObject) -> Unit,
+    onCopy: (JSONObject) -> Unit,
+    onEdit: (Int) -> Unit,
+    onDelete: (Int) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    var deleteIdx by remember { mutableStateOf<Int?>(null) }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -491,30 +632,78 @@ fun HomeScreen(
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(servers) { _, server ->
-                    ServerCard(strings = strings, server = server, onConnect = { onConnect(server) })
+                itemsIndexed(servers) { idx, server ->
+                    ServerCard(
+                        strings = strings,
+                        server = server,
+                        onConnect = { onConnect(server) },
+                        onCopy = { onCopy(server) },
+                        onEdit = { onEdit(idx) },
+                        onDelete = { deleteIdx = idx },
+                    )
                 }
             }
         }
     }
+
+    // Delete confirmation dialog
+    if (deleteIdx != null) {
+        AlertDialog(
+            onDismissRequest = { deleteIdx = null },
+            title = { Text(strings.delete) },
+            text = { Text(strings.deleteConfirm) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(deleteIdx!!)
+                    deleteIdx = null
+                }) { Text(strings.confirm) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteIdx = null }) { Text(strings.cancel) }
+            },
+        )
+    }
 }
 
 @Composable
-fun ServerCard(strings: AppStrings, server: JSONObject, onConnect: () -> Unit) {
+fun ServerCard(
+    strings: AppStrings,
+    server: JSONObject,
+    onConnect: () -> Unit,
+    onCopy: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val authBadge = when (server.optString("auth_type", "password")) {
+        "key" -> "[${strings.sshKey}]"
+        else -> "[${strings.passwordBadge}]"
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(server.optString("name", ""), style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "${server.optString("username", "root")}@${server.optString("host", "")}:${server.optInt("port", 22)}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Button(onClick = onConnect) {
-                Text(strings.connect)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(server.optString("name", ""), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${server.optString("username", "root")}@${server.optString("host", "")}:${server.optInt("port", 22)}  $authBadge",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                // Action buttons row
+                OutlinedButton(onClick = onConnect, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text(strings.connect, style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                OutlinedButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text(strings.copy, style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                OutlinedButton(onClick = onEdit, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text(strings.edit, style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                OutlinedButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text(strings.delete, style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }
@@ -620,5 +809,76 @@ private fun LanguageOptionButton(
         colors = colors,
     ) {
         Text(label)
+    }
+}
+
+@Composable
+fun FormScreen(
+    strings: AppStrings,
+    editIdx: Int?,
+    name: String, onNameChange: (String) -> Unit,
+    host: String, onHostChange: (String) -> Unit,
+    port: String, onPortChange: (String) -> Unit,
+    user: String, onUserChange: (String) -> Unit,
+    authType: String, onAuthTypeChange: (String) -> Unit,
+    password: String, onPasswordChange: (String) -> Unit,
+    identityFile: String, onIdentityFileChange: (String) -> Unit,
+    privateKey: String, onPrivateKeyChange: (String) -> Unit,
+    passphrase: String, onPassphraseChange: (String) -> Unit,
+    notes: String, onNotesChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (editIdx != null) strings.edit else strings.add,
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onBack) { Text(strings.back) }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(value = name, onValueChange = onNameChange,
+            label = { Text(strings.name) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(value = host, onValueChange = onHostChange,
+            label = { Text(strings.host) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(value = port, onValueChange = onPortChange,
+            label = { Text(strings.port) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(value = user, onValueChange = onUserChange,
+            label = { Text(strings.username) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Auth type toggle
+        Row {
+            FilterChip(selected = authType == "password", onClick = { onAuthTypeChange("password") }, label = { Text(strings.passwordBadge) })
+            Spacer(modifier = Modifier.width(8.dp))
+            FilterChip(selected = authType == "key", onClick = { onAuthTypeChange("key") }, label = { Text(strings.sshKey) })
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (authType == "password") {
+            OutlinedTextField(value = password, onValueChange = onPasswordChange,
+                label = { Text(strings.password) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        } else {
+            OutlinedTextField(value = identityFile, onValueChange = onIdentityFileChange,
+                label = { Text(strings.identityFile) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(value = notes, onValueChange = onNotesChange,
+            label = { Text(strings.notes) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+            Text(strings.save)
+        }
     }
 }
