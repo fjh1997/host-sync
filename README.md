@@ -16,6 +16,16 @@
   </p>
 </div>
 
+## Screenshots / 界面截图
+
+<div align="center">
+  <img src="./screenshots/desktop.png" alt="Desktop" width="600" />
+  <p><em>Desktop (Windows/macOS/Linux) / 桌面端</em></p>
+  
+  <img src="./screenshots/android.png" alt="Android" width="300" />
+  <p><em>Android / 安卓端</em></p>
+</div>
+
 ## Features / 功能
 
 - **SSH Key Management / SSH 密钥管理** — Store SSH private keys (PEM/OpenSSH), IdentityFile paths, and passphrases in one place / 集中存储 SSH 私钥、IdentityFile 路径和密钥口令
@@ -114,6 +124,52 @@ Download the `.dmg`, open it, drag **HostSync** to **Applications**.
 下载 `.dmg`，打开后将 HostSync 拖入 Applications 即可。
 
 > First launch: right-click → Open to bypass Gatekeeper / 首次启动：右键 → 打开 以绕过 Gatekeeper
+
+### Android
+
+Download `HostSync.apk` and install.
+
+下载 `HostSync.apk` 安装即可。
+
+#### Termux Integration / Termux 集成
+
+HostSync uses [Termux](https://termux.dev/) to run SSH connections on Android. Install Termux from F-Droid (not Play Store).
+
+HostSync 使用 [Termux](https://termux.dev/) 在 Android 上运行 SSH 连接。请从 F-Droid 安装 Termux（不要用 Play Store 版本）。
+
+**Setup steps / 设置步骤：**
+
+1. Install Termux from [F-Droid](https://f-droid.org/packages/com.termux/) / 从 F-Droid 安装 Termux
+
+2. Grant RUN_COMMAND permission via ADB (required for Android 13+) / 通过 ADB 授予 RUN_COMMAND 权限（Android 13+ 必需）：
+   ```bash
+   adb shell su -c "pm grant com.hostsync.app com.termux.permission.RUN_COMMAND"
+   ```
+   > On ColorOS/MIUI/HyperOS, this permission cannot be granted through Settings UI. ADB with root is required.
+   > 在 ColorOS/MIUI/HyperOS 上，此权限无法通过设置界面授予，需要使用 ADB root。
+
+3. Enable external apps in Termux / 在 Termux 中启用外部应用：
+   ```bash
+   # Run this inside Termux
+   echo "allow-external-apps = true" >> ~/.termux/termux.properties
+   ```
+   Then restart Termux / 然后重启 Termux。
+
+4. (Optional) Grant Termux Draw Over Apps permission for background execution / （可选）授予 Termux 悬浮窗权限以支持后台执行：
+   ```
+   Settings → Apps → Termux → Advanced → Draw over other apps
+   设置 → 应用 → Termux → 高级 → 悬浮窗
+   ```
+
+#### SSH Key Path on Android / Android 上的 SSH 密钥路径
+
+When using key-based authentication on Android, the identity file path should be the Termux path:
+- `~/.ssh/id_rsa` → `/data/data/com.termux/files/home/.ssh/id_rsa`
+- Or store the private key inline (in the "Private Key" field) for cross-device sync
+
+在 Android 上使用密钥登录时，密钥文件路径应使用 Termux 路径：
+- `~/.ssh/id_rsa` → `/data/data/com.termux/files/home/.ssh/id_rsa`
+- 或者使用"私钥"字段内联存储私钥，实现跨设备同步
 
 ### iOS (AltStore)
 

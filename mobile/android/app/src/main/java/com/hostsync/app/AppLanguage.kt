@@ -66,6 +66,8 @@ data class AppStrings(
     val passwordBadge: String,
     val sshKey: String,
     val identityFile: String,
+    val privateKey: String,
+    val privateKeyHint: String,
     val notes: String,
     val save: String,
     val copiedToClipboard: String,
@@ -73,6 +75,8 @@ data class AppStrings(
     val termuxDesc: String,
     val openSettings: String,
     val connectAnyway: String,
+    val sync: String,
+    val syncComplete: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -173,6 +177,8 @@ object LanguagePrefs {
                 passwordBadge = "pw",
                 sshKey = "SSH Key",
                 identityFile = "Identity File",
+                privateKey = "Private Key (PEM)",
+                privateKeyHint = "Paste your SSH private key here for cross-device sync",
                 notes = "Notes",
                 save = "Save",
                 copiedToClipboard = "Command copied to clipboard",
@@ -180,6 +186,8 @@ object LanguagePrefs {
                 termuxDesc = "Please install Termux, then in the app info page:\n1. Enable \"Allow external apps\" in Termux settings\n2. Enable \"Associated launch\" / \"Cross-app launch\" permission (MIUI/ColorOS/HarmonyOS)",
                 openSettings = "Termux App Info",
                 connectAnyway = "Connect Anyway",
+                sync = "Sync",
+                syncComplete = "Sync complete",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -223,6 +231,8 @@ object LanguagePrefs {
                 passwordBadge = "密码",
                 sshKey = "SSH 密钥",
                 identityFile = "密钥文件",
+                privateKey = "私钥 (PEM)",
+                privateKeyHint = "粘贴 SSH 私钥以实现跨设备同步",
                 notes = "备注",
                 save = "保存",
                 copiedToClipboard = "命令已复制到剪贴板",
@@ -230,6 +240,8 @@ object LanguagePrefs {
                 termuxDesc = "请先安装 Termux，然后在应用详情页中：\n1. 开启 Termux 设置中的「允许外部应用」\n2. 国产系统还需开启「关联启动」权限（MIUI/ColorOS/鸿蒙等）",
                 openSettings = "Termux 应用详情",
                 connectAnyway = "仍然连接",
+                sync = "同步",
+                syncComplete = "同步完成",
             )
         }
     }

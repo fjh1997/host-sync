@@ -4,6 +4,33 @@
 
 The Android app is a native Kotlin + Jetpack Compose project that calls into the Rust core library via JNI.
 
+### Termux Integration
+
+HostSync uses Termux for SSH connections on Android. The app sends commands to Termux via the `RUN_COMMAND` intent.
+
+#### Prerequisites
+
+1. Install [Termux](https://f-droid.org/packages/com.termux/) from F-Droid
+2. Grant `com.termux.permission.RUN_COMMAND` permission:
+   ```bash
+   adb shell su -c "pm grant com.hostsync.app com.termux.permission.RUN_COMMAND"
+   ```
+3. In Termux, enable external apps:
+   ```bash
+   echo "allow-external-apps = true" >> ~/.termux/termux.properties
+   ```
+4. Restart Termux
+
+#### SSH Key Paths
+
+On Android, SSH keys are stored in Termux's directory:
+- Termux home: `/data/data/com.termux/files/home/`
+- SSH keys: `/data/data/com.termux/files/home/.ssh/`
+
+If syncing keys from desktop, the path `~/.ssh/id_rsa` on desktop maps to `/data/data/com.termux/files/home/.ssh/id_rsa` in Termux.
+
+For cross-device sync, use the "Private Key" field to store the key content inline (encrypted and synced).
+
 ### Build Steps
 
 1. Build the Rust shared library for Android targets:

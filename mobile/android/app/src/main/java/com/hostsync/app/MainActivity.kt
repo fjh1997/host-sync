@@ -13,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -185,6 +187,15 @@ class MainActivity : ComponentActivity() {
                                 settingsReturnScreen = AppScreen.HOME
                                 screen = AppScreen.SETTINGS
                             },
+                            onSync = {
+                                syncScope.launch(Dispatchers.IO) {
+                                    this@MainActivity.syncDownload()
+                                    withContext(Dispatchers.Main) {
+                                        servers = loadServers()
+                                        Toast.makeText(this@MainActivity, strings.syncComplete, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
                         )
                         AppScreen.ADD_EDIT -> FormScreen(
                             strings = strings,
@@ -260,26 +271,67 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/// Build SSH command string for a server (same logic as desktop CopyCommand)
+/// Convert desktop SSH key path to Termux path
+/// ~/.ssh/id_rsa → /data/data/com.termux/files/home/.ssh/id_rsa
+fun convertToTermuxPath(path: String): String {
+    if (path.isEmpty()) return path
+    // Already a Termux path
+    if (path.startsWith("/data/data/com.termux/")) return path
+    // Handle ~ expansion
+    if (path.startsWith("~/") || path.startsWith("~\\")) {
+        return "/data/data/com.termux/files/home/" + path.substring(2)
+    }
+    // Handle relative paths that look like .ssh/...
+    if (path.startsWith(".ssh/") || path.startsWith(".ssh\\")) {
+        return "/data/data/com.termux/files/home/$path"
+    }
+    return path
+}
+
+/// Build SSH command string for a server
+/// For inline keys, uses base64 encoding to avoid multiline paste issues
+/// Key path matches desktop: ~/.ssh/hostsync_keys/{server.id}.key
 fun buildSshCommand(server: JSONObject): String {
     val port = server.optInt("port", 22)
     val user = server.optString("username", "root")
     val host = server.optString("host", "")
-    val idFile = server.optString("identity_file", "")
     val password = server.optString("password", "")
+    val privateKey = server.optString("private_key", "")
+    val idFile = convertToTermuxPath(server.optString("identity_file", ""))
 
-    val sshArgs = if (idFile.isNotEmpty()) {
-        "-i $idFile -p $port $user@$host"
-    } else {
-        "-p $port $user@$host"
-    }
+    val sshArgs = "-p $port -o StrictHostKeyChecking=no $user@$host"
 
-    return if (password.isNotEmpty()) {
+    // Password auth
+    if (password.isNotEmpty()) {
         val escaped = password.replace("'", "'\\''")
-        "sshpass -p '$escaped' ssh -tt -o PreferredAuthentications=password $sshArgs"
-    } else {
-        "ssh $sshArgs"
+        return "sshpass -p '$escaped' ssh -tt -o PreferredAuthentications=password $sshArgs"
     }
+
+    // Inline key auth - use base64 to avoid multiline issues
+    // Use same path as desktop: ~/.ssh/hostsync_keys/{server.id}.key
+    if (privateKey.isNotEmpty()) {
+        val serverId = server.optString("id", "")
+        val keyPath = if (serverId.isNotEmpty()) {
+            "~/.ssh/hostsync_keys/$serverId.key"
+        } else {
+            // Fallback if no ID (shouldn't happen)
+            val safeName = "${host}_${user}".replace(Regex("[^a-zA-Z0-9._-]"), "_")
+            "~/.ssh/hostsync_keys/$safeName.key"
+        }
+        val encoded = android.util.Base64.encodeToString(
+            privateKey.toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+        )
+        return "mkdir -p ~/.ssh/hostsync_keys && echo '$encoded' | base64 -d > $keyPath && chmod 600 $keyPath && ssh -i $keyPath $sshArgs"
+    }
+
+    // Identity file auth
+    if (idFile.isNotEmpty()) {
+        return "ssh -i $idFile $sshArgs"
+    }
+
+    // No auth
+    return "ssh $sshArgs"
 }
 
 /// Launch Termux to run a command
@@ -639,13 +691,13 @@ fun HomeScreen(
     onEdit: (Int) -> Unit,
     onDelete: (Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onSync: () -> Unit,
 ) {
     var deleteIdx by remember { mutableStateOf<Int?>(null) }
-    var showTermuxDialog by remember { mutableStateOf(false) }
-    var pendingCommand by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Spacer(modifier = Modifier.height(24.dp)) // Extra top padding for easier reach
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -655,7 +707,11 @@ fun HomeScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.weight(1f)
             )
-            TextButton(onClick = onOpenSettings) {
+            FilledTonalButton(onClick = onSync, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(strings.sync)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            FilledTonalButton(onClick = onOpenSettings, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                 Text(strings.settings)
             }
         }
@@ -672,8 +728,11 @@ fun HomeScreen(
                         strings = strings,
                         server = server,
                         onConnect = {
-                            pendingCommand = buildSshCommand(server)
-                            showTermuxDialog = true
+                            val cmd = buildSshCommand(server)
+                            if (!launchTermux(context, cmd)) {
+                                // Termux not installed, show guidance
+                                Toast.makeText(context, strings.termuxDesc, Toast.LENGTH_LONG).show()
+                            }
                         },
                         onCopy = { onCopy(server) },
                         onEdit = { onEdit(idx) },
@@ -698,29 +757,6 @@ fun HomeScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteIdx = null }) { Text(strings.cancel) }
-            },
-        )
-    }
-
-    // Termux guidance dialog
-    if (showTermuxDialog) {
-        AlertDialog(
-            onDismissRequest = { showTermuxDialog = false },
-            title = { Text(strings.termuxTitle) },
-            text = { Text(strings.termuxDesc) },
-            confirmButton = {
-                TextButton(onClick = {
-                    openTermuxSettings(context)
-                }) { Text(strings.openSettings) }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { showTermuxDialog = false }) { Text(strings.cancel) }
-                    TextButton(onClick = {
-                        showTermuxDialog = false
-                        pendingCommand?.let { launchTermux(context, it) }
-                    }) { Text(strings.connectAnyway) }
-                }
             },
         )
     }
@@ -890,56 +926,71 @@ fun FormScreen(
     onSave: () -> Unit,
     onBack: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Top bar with back button - easier to reach
+        Spacer(modifier = Modifier.height(24.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            FilledTonalButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(strings.back)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
             Text(
                 if (editIdx != null) strings.edit else strings.add,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f)
             )
-            TextButton(onClick = onBack) { Text(strings.back) }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(value = name, onValueChange = onNameChange,
-            label = { Text(strings.name) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = host, onValueChange = onHostChange,
-            label = { Text(strings.host) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = port, onValueChange = onPortChange,
-            label = { Text(strings.port) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = user, onValueChange = onUserChange,
-            label = { Text(strings.username) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Auth type toggle
-        Row {
-            FilterChip(selected = authType == "password", onClick = { onAuthTypeChange("password") }, label = { Text(strings.passwordBadge) })
-            Spacer(modifier = Modifier.width(8.dp))
-            FilterChip(selected = authType == "key", onClick = { onAuthTypeChange("key") }, label = { Text(strings.sshKey) })
         }
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (authType == "password") {
-            OutlinedTextField(value = password, onValueChange = onPasswordChange,
-                label = { Text(strings.password) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        } else {
-            OutlinedTextField(value = identityFile, onValueChange = onIdentityFileChange,
-                label = { Text(strings.identityFile) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+        // Scrollable form content
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        ) {
+            OutlinedTextField(value = name, onValueChange = onNameChange,
+                label = { Text(strings.name) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = host, onValueChange = onHostChange,
+                label = { Text(strings.host) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = port, onValueChange = onPortChange,
+                label = { Text(strings.port) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = user, onValueChange = onUserChange,
+                label = { Text(strings.username) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(value = notes, onValueChange = onNotesChange,
-            label = { Text(strings.notes) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-        Spacer(modifier = Modifier.height(16.dp))
+            // Auth type toggle
+            Row {
+                FilterChip(selected = authType == "password", onClick = { onAuthTypeChange("password") }, label = { Text(strings.passwordBadge) })
+                Spacer(modifier = Modifier.width(8.dp))
+                FilterChip(selected = authType == "key", onClick = { onAuthTypeChange("key") }, label = { Text(strings.sshKey) })
+            }
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
-            Text(strings.save)
+            if (authType == "password") {
+                OutlinedTextField(value = password, onValueChange = onPasswordChange,
+                    label = { Text(strings.password) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            } else {
+                OutlinedTextField(value = identityFile, onValueChange = onIdentityFileChange,
+                    label = { Text(strings.identityFile) }, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("~/.ssh/id_rsa") })
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(value = privateKey, onValueChange = onPrivateKeyChange,
+                    label = { Text(strings.privateKey) }, modifier = Modifier.fillMaxWidth(), minLines = 3,
+                    placeholder = { Text(strings.privateKeyHint) })
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(value = notes, onValueChange = onNotesChange,
+                label = { Text(strings.notes) }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
+                Text(strings.save)
+            }
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
