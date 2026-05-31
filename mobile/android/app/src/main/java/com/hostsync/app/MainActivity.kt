@@ -1,10 +1,15 @@
 package com.hostsync.app
 
 import android.os.Bundle
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -12,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import okhttp3.*
@@ -43,10 +49,14 @@ class MainActivity : ComponentActivity() {
     private external fun hostsyncGetGithubUsername(): String
     private external fun hostsyncRequestDeviceCode(): String
     private external fun hostsyncSaveGithubToken(token: String): Int
+    private external fun hostsyncFetchUsername(): Int
+    private external fun hostsyncSyncDownload(): Int
 
     // Public wrappers for composable access
     fun requestDeviceCode(): String = hostsyncRequestDeviceCode()
     fun saveGithubToken(token: String): Int = hostsyncSaveGithubToken(token)
+    fun fetchUsername(): Int = hostsyncFetchUsername()
+    fun syncDownload(): Int = hostsyncSyncDownload()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -132,6 +142,7 @@ fun LoginScreen(
     var polling by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -160,10 +171,22 @@ fun LoginScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    // Clickable device code — tap to copy
                     Text(
                         userCode!!,
                         style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("device_code", userCode)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, strings.codeCopied, Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                    Text(
+                        strings.tapToCopy,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -247,6 +270,10 @@ fun LoginScreen(
                                     val token = body.getString("access_token")
                                     // Save token via Rust FFI
                                     activity.saveGithubToken(token)
+                                    // Fetch username from GitHub API
+                                    activity.fetchUsername()
+                                    // Sync: download servers from gist
+                                    activity.syncDownload()
                                     withContext(Dispatchers.Main) {
                                         polling = false
                                         onLoginSuccess()

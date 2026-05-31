@@ -42,6 +42,8 @@ data class AppStrings(
     val openAndEnterCode: String,
     val waitingForAuthorization: String,
     val openGitHub: String,
+    val tapToCopy: String,
+    val codeCopied: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -118,6 +120,8 @@ object LanguagePrefs {
                 openAndEnterCode = "Open GitHub and enter code:",
                 waitingForAuthorization = "Waiting for authorization...",
                 openGitHub = "Open GitHub",
+                tapToCopy = "Tap to copy",
+                codeCopied = "Code copied!",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -137,6 +141,8 @@ object LanguagePrefs {
                 openAndEnterCode = "打开 GitHub 并输入验证码：",
                 waitingForAuthorization = "等待授权中...",
                 openGitHub = "打开 GitHub",
+                tapToCopy = "点击复制",
+                codeCopied = "已复制验证码",
             )
         }
     }
