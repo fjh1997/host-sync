@@ -8,4 +8,8 @@ fn main() {
         _ => "unknown".to_string(),
     };
     println!("cargo:rustc-env=HOSTSYNC_BUILD={}", hash);
+
+    // Embed Windows application icon
+    #[cfg(windows)]
+    let _ = embed_resource::compile("icon.rc", embed_resource::NONE);
 }
