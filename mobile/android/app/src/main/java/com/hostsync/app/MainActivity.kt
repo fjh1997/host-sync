@@ -47,13 +47,11 @@ class MainActivity : ComponentActivity() {
     private external fun hostsyncGenerateSshConfig(): String
     private external fun hostsyncIsLoggedIn(): Int
     private external fun hostsyncGetGithubUsername(): String
-    private external fun hostsyncRequestDeviceCode(): String
     private external fun hostsyncSaveGithubToken(token: String): Int
     private external fun hostsyncFetchUsername(): Int
     private external fun hostsyncSyncDownload(): Int
 
     // Public wrappers for composable access
-    fun requestDeviceCode(): String = hostsyncRequestDeviceCode()
     fun saveGithubToken(token: String): Int = hostsyncSaveGithubToken(token)
     fun fetchUsername(): Int = hostsyncFetchUsername()
     fun syncDownload(): Int = hostsyncSyncDownload()
@@ -214,17 +212,36 @@ fun LoginScreen(
                     // Step 1: Request device code
                     scope.launch(Dispatchers.IO) {
                         try {
-                            val json = JSONObject(activity.requestDeviceCode())
+                            // Request device code via OkHttp directly
+                            val client = OkHttpClient.Builder()
+                                .connectTimeout(30, TimeUnit.SECONDS)
+                                .readTimeout(30, TimeUnit.SECONDS)
+                                .build()
+
+                            val dcFormBody = FormBody.Builder()
+                                .add("client_id", "Ov23liGz0a5kU4v1LwKI")
+                                .add("scope", "gist read:user")
+                                .build()
+
+                            val dcRequest = Request.Builder()
+                                .url("https://github.com/login/device/code")
+                                .header("Accept", "application/json")
+                                .post(dcFormBody)
+                                .build()
+
+                            val dcResponse = client.newCall(dcRequest).execute()
+                            val json = JSONObject(dcResponse.body?.string() ?: "{}")
+
                             if (json.has("error")) {
                                 withContext(Dispatchers.Main) {
-                                    errorMsg = json.getString("error")
+                                    errorMsg = json.optString("error_description", json.getString("error"))
                                 }
                                 return@launch
                             }
                             val uc = json.getString("user_code")
                             val dc = json.getString("device_code")
                             val uri = json.getString("verification_uri")
-                            val interval = json.optLong("interval", 5)
+                            val intervalSec0 = json.optLong("interval", 5)
 
                             withContext(Dispatchers.Main) {
                                 userCode = uc
@@ -241,30 +258,25 @@ fun LoginScreen(
                             }
 
                             // Step 2: Poll for token
-                            val client = OkHttpClient.Builder()
-                                .connectTimeout(30, TimeUnit.SECONDS)
-                                .readTimeout(30, TimeUnit.SECONDS)
-                                .build()
-
-                            var intervalSec = interval
+                            var intervalSec = intervalSec0
                             val deadline = System.currentTimeMillis() + 900_000
                             while (System.currentTimeMillis() < deadline) {
                                 delay(intervalSec * 1000)
 
-                                val formBody = FormBody.Builder()
+                                val pollFormBody = FormBody.Builder()
                                     .add("client_id", "Ov23liGz0a5kU4v1LwKI")
                                     .add("device_code", dc)
                                     .add("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
                                     .build()
 
-                                val request = Request.Builder()
+                                val pollRequest = Request.Builder()
                                     .url("https://github.com/login/oauth/access_token")
                                     .header("Accept", "application/json")
-                                    .post(formBody)
+                                    .post(pollFormBody)
                                     .build()
 
-                                val response = client.newCall(request).execute()
-                                val body = JSONObject(response.body?.string() ?: "{}")
+                                val pollResponse = client.newCall(pollRequest).execute()
+                                val body = JSONObject(pollResponse.body?.string() ?: "{}")
 
                                 if (body.has("access_token")) {
                                     val token = body.getString("access_token")
