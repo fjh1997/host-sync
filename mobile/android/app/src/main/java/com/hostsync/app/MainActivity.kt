@@ -25,6 +25,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 private enum class AppScreen {
@@ -55,6 +57,21 @@ class MainActivity : ComponentActivity() {
     fun saveGithubToken(token: String): Int = hostsyncSaveGithubToken(token)
     fun fetchUsername(): Int = hostsyncFetchUsername()
     fun syncDownload(): Int = hostsyncSyncDownload()
+
+    // Shared OkHttpClient with optional SOCKS5 proxy
+    fun httpClient(): OkHttpClient {
+        val prefs = getSharedPreferences("hostsync_settings", MODE_PRIVATE)
+        val proxyHost = prefs.getString("proxy_host", null)
+        val proxyPort = prefs.getInt("proxy_port", 0)
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+        if (!proxyHost.isNullOrBlank() && proxyPort > 0) {
+            val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(proxyHost, proxyPort))
+            builder.proxy(proxy)
+        }
+        return builder.build()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,6 +121,7 @@ class MainActivity : ComponentActivity() {
                         )
                         AppScreen.SETTINGS -> SettingsScreen(
                             strings = strings,
+                            activity = this@MainActivity,
                             languageSetting = languageSetting,
                             systemLanguageName = LanguagePrefs.currentSystemLanguageName(this, strings),
                             onLanguageSelected = { selected ->
@@ -151,6 +169,12 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(8.dp))
         Text(strings.subtitle, style = MaterialTheme.typography.bodyMedium)
         Spacer(modifier = Modifier.height(32.dp))
+
+        // Show error outside the card too
+        if (errorMsg != null && userCode == null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(errorMsg!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 32.dp))
+        }
 
         if (userCode != null && deviceCode != null) {
             // Show device code and polling status
@@ -213,10 +237,10 @@ fun LoginScreen(
                     scope.launch(Dispatchers.IO) {
                         try {
                             // Request device code via OkHttp directly
-                            val client = OkHttpClient.Builder()
-                                .connectTimeout(30, TimeUnit.SECONDS)
-                                .readTimeout(30, TimeUnit.SECONDS)
-                                .build()
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Requesting device code...", Toast.LENGTH_SHORT).show()
+                            }
+                            val client = withContext(Dispatchers.Main) { activity.httpClient() }
 
                             val dcFormBody = FormBody.Builder()
                                 .add("client_id", "Ov23liGz0a5kU4v1LwKI")
@@ -230,7 +254,11 @@ fun LoginScreen(
                                 .build()
 
                             val dcResponse = client.newCall(dcRequest).execute()
-                            val json = JSONObject(dcResponse.body?.string() ?: "{}")
+                            val bodyStr = dcResponse.body?.string() ?: "{}"
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Response: ${bodyStr.take(100)}", Toast.LENGTH_LONG).show()
+                            }
+                            val json = JSONObject(bodyStr)
 
                             if (json.has("error")) {
                                 withContext(Dispatchers.Main) {
@@ -398,11 +426,16 @@ fun ServerCard(strings: AppStrings, server: JSONObject, onConnect: () -> Unit) {
 @Composable
 fun SettingsScreen(
     strings: AppStrings,
+    activity: MainActivity,
     languageSetting: AppLanguageSetting,
     systemLanguageName: String,
     onLanguageSelected: (AppLanguageSetting) -> Unit,
     onBack: () -> Unit,
 ) {
+    val prefs = remember { activity.getSharedPreferences("hostsync_settings", Context.MODE_PRIVATE) }
+    var proxyHost by remember { mutableStateOf(prefs.getString("proxy_host", "") ?: "") }
+    var proxyPort by remember { mutableStateOf(if (prefs.getInt("proxy_port", 0) > 0) prefs.getInt("proxy_port", 0).toString() else "") }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -442,6 +475,32 @@ fun SettingsScreen(
             label = strings.languageChinese,
             selected = languageSetting == AppLanguageSetting.CHINESE,
             onClick = { onLanguageSelected(AppLanguageSetting.CHINESE) }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(strings.proxySettings, style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = proxyHost,
+            onValueChange = {
+                proxyHost = it
+                prefs.edit().putString("proxy_host", it).apply()
+            },
+            label = { Text(strings.proxyHost) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = proxyPort,
+            onValueChange = {
+                proxyPort = it
+                val port = it.toIntOrNull() ?: 0
+                prefs.edit().putInt("proxy_port", port).apply()
+            },
+            label = { Text(strings.proxyPort) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
     }
 }

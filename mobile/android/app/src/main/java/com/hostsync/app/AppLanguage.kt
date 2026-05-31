@@ -44,6 +44,9 @@ data class AppStrings(
     val openGitHub: String,
     val tapToCopy: String,
     val codeCopied: String,
+    val proxySettings: String,
+    val proxyHost: String,
+    val proxyPort: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -122,6 +125,9 @@ object LanguagePrefs {
                 openGitHub = "Open GitHub",
                 tapToCopy = "Tap to copy",
                 codeCopied = "Code copied!",
+                proxySettings = "Proxy (SOCKS5)",
+                proxyHost = "Host (e.g. 192.168.1.5)",
+                proxyPort = "Port (e.g. 10808)",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -143,6 +149,9 @@ object LanguagePrefs {
                 openGitHub = "打开 GitHub",
                 tapToCopy = "点击复制",
                 codeCopied = "已复制验证码",
+                proxySettings = "代理 (SOCKS5)",
+                proxyHost = "主机 (如 192.168.1.5)",
+                proxyPort = "端口 (如 10808)",
             )
         }
     }
