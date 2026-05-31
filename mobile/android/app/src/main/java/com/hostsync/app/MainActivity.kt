@@ -150,10 +150,7 @@ class MainActivity : ComponentActivity() {
                         AppScreen.HOME -> HomeScreen(
                             strings = strings,
                             servers = servers,
-                            onConnect = { server ->
-                                val cmd = buildSshCommand(server)
-                                launchTermux(this@MainActivity, cmd)
-                            },
+                            onConnect = { },
                             onCopy = { server ->
                                 val cmd = buildSshCommand(server)
                                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -286,7 +283,7 @@ fun buildSshCommand(server: JSONObject): String {
 }
 
 /// Launch Termux to run a command
-fun launchTermux(context: Context, command: String) {
+fun launchTermux(context: Context, command: String): Boolean {
     // Try Termux RUN_COMMAND service first
     try {
         val intent = Intent("com.termux.RUN_COMMAND").apply {
@@ -297,7 +294,7 @@ fun launchTermux(context: Context, command: String) {
             putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
         }
         context.startService(intent)
-        return
+        return true
     } catch (_: Exception) {}
 
     // Fallback: try launching TermuxActivity directly
@@ -306,13 +303,39 @@ fun launchTermux(context: Context, command: String) {
             setClassName("com.termux", "com.termux.app.TermuxActivity")
         }
         context.startActivity(intent)
-        return
+        return true
     } catch (_: Exception) {}
 
-    // Fallback: copy command to clipboard
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("ssh_command", command))
-    Toast.makeText(context, "Termux not found. Command copied to clipboard.", Toast.LENGTH_LONG).show()
+    // Termux not installed at all
+    return false
+}
+
+/// Check if Termux is installed
+fun isTermuxInstalled(context: Context): Boolean {
+    return try {
+        context.packageManager.getPackageInfo("com.termux", 0)
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+/// Open Termux settings to enable "Allow external apps"
+fun openTermuxSettings(context: Context) {
+    try {
+        val intent = Intent().apply {
+            setClassName("com.termux", "com.termux.app.TermuxPreferencesActivity")
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        // Fallback: open Termux app info in system settings
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:com.termux")
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {}
+    }
 }
 
 @Composable
@@ -609,6 +632,8 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
 ) {
     var deleteIdx by remember { mutableStateOf<Int?>(null) }
+    var showTermuxDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -636,7 +661,12 @@ fun HomeScreen(
                     ServerCard(
                         strings = strings,
                         server = server,
-                        onConnect = { onConnect(server) },
+                        onConnect = {
+                            val cmd = buildSshCommand(server)
+                            if (!launchTermux(context, cmd)) {
+                                showTermuxDialog = true
+                            }
+                        },
                         onCopy = { onCopy(server) },
                         onEdit = { onEdit(idx) },
                         onDelete = { deleteIdx = idx },
@@ -660,6 +690,24 @@ fun HomeScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteIdx = null }) { Text(strings.cancel) }
+            },
+        )
+    }
+
+    // Termux guidance dialog
+    if (showTermuxDialog) {
+        AlertDialog(
+            onDismissRequest = { showTermuxDialog = false },
+            title = { Text(strings.termuxTitle) },
+            text = { Text(strings.termuxDesc) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showTermuxDialog = false
+                    openTermuxSettings(context)
+                }) { Text(strings.openSettings) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTermuxDialog = false }) { Text(strings.cancel) }
             },
         )
     }

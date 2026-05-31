@@ -69,6 +69,9 @@ data class AppStrings(
     val notes: String,
     val save: String,
     val copiedToClipboard: String,
+    val termuxTitle: String,
+    val termuxDesc: String,
+    val openSettings: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -172,6 +175,9 @@ object LanguagePrefs {
                 notes = "Notes",
                 save = "Save",
                 copiedToClipboard = "Command copied to clipboard",
+                termuxTitle = "Termux Required",
+                termuxDesc = "Please install Termux from F-Droid/Google Play, then enable \"Allow external apps\" in Termux Settings > Allow external apps.",
+                openSettings = "Open Termux",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -218,6 +224,9 @@ object LanguagePrefs {
                 notes = "备注",
                 save = "保存",
                 copiedToClipboard = "命令已复制到剪贴板",
+                termuxTitle = "需要安装 Termux",
+                termuxDesc = "请先从 F-Droid/Google Play 安装 Termux，然后在 Termux 设置中开启「允许外部应用」。",
+                openSettings = "打开 Termux",
             )
         }
     }
