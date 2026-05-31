@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
         val builder = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .protocols(listOf(Protocol.HTTP_1_1))  //禁用 HTTP/2 避免代理兼容问题
         if (!proxyHost.isNullOrBlank() && proxyPort > 0) {
             val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(proxyHost, proxyPort))
             builder.proxy(proxy)
@@ -250,14 +251,13 @@ fun LoginScreen(
                             val dcRequest = Request.Builder()
                                 .url("https://github.com/login/device/code")
                                 .header("Accept", "application/json")
+                                .header("User-Agent", "HostSync/1.0")
                                 .post(dcFormBody)
                                 .build()
 
                             val dcResponse = client.newCall(dcRequest).execute()
                             val bodyStr = dcResponse.body?.string() ?: "{}"
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Response: ${bodyStr.take(100)}", Toast.LENGTH_LONG).show()
-                            }
+                            dcResponse.close()
                             val json = JSONObject(bodyStr)
 
                             if (json.has("error")) {
@@ -300,11 +300,14 @@ fun LoginScreen(
                                 val pollRequest = Request.Builder()
                                     .url("https://github.com/login/oauth/access_token")
                                     .header("Accept", "application/json")
+                                    .header("User-Agent", "HostSync/1.0")
                                     .post(pollFormBody)
                                     .build()
 
                                 val pollResponse = client.newCall(pollRequest).execute()
-                                val body = JSONObject(pollResponse.body?.string() ?: "{}")
+                                val pollBodyStr = pollResponse.body?.string() ?: "{}"
+                                pollResponse.close()
+                                val body = JSONObject(pollBodyStr)
 
                                 if (body.has("access_token")) {
                                     val token = body.getString("access_token")
