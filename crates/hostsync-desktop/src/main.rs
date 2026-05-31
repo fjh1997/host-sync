@@ -8,10 +8,23 @@ use iced::widget::text_editor;
 use iced::{Element, Task, Theme};
 
 fn main() -> iced::Result {
+    let icon = load_icon();
     iced::application("HostSync", App::update, App::view)
         .theme(|_| Theme::Dark)
-        .window_size((900.0, 640.0))
+        .window(iced::window::Settings {
+            size: iced::Size::new(900.0, 640.0),
+            icon,
+            ..Default::default()
+        })
         .run_with(App::new)
+}
+
+fn load_icon() -> Option<iced::window::Icon> {
+    let bytes = include_bytes!("../../../altstore/icon.png");
+    let img = image::load_from_memory(bytes).ok()?;
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    iced::window::icon::from_rgba(rgba.into_raw(), w, h).ok()
 }
 
 #[derive(Debug, Clone)]
