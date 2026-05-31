@@ -86,7 +86,11 @@ pub extern "C" fn hostsync_request_device_code() -> *mut c_char {
 }
 
 /// Poll for GitHub access token using a device code. Blocks until done.
-/// `device_code` and `interval` are C strings: "device_code\0interval".
+///
+/// # Safety
+///
+/// `device_code` must be a valid null-terminated C string.
+/// `interval` is a plain integer (polling interval in seconds).
 #[no_mangle]
 pub unsafe extern "C" fn hostsync_poll_for_token(
     device_code: *const c_char,
@@ -112,6 +116,10 @@ pub unsafe extern "C" fn hostsync_poll_for_token(
 }
 
 /// Save a GitHub token directly (for Device Flow completion from Kotlin side).
+///
+/// # Safety
+///
+/// `token` must be a valid null-terminated C string containing the GitHub access token.
 #[no_mangle]
 pub unsafe extern "C" fn hostsync_save_github_token(token: *const c_char) -> i32 {
     let c_str = unsafe { CStr::from_ptr(token) };
