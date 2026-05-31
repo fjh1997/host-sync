@@ -13,8 +13,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.*
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 private enum class AppScreen {
     LOGIN,
@@ -36,6 +41,12 @@ class MainActivity : ComponentActivity() {
     private external fun hostsyncGenerateSshConfig(): String
     private external fun hostsyncIsLoggedIn(): Int
     private external fun hostsyncGetGithubUsername(): String
+    private external fun hostsyncRequestDeviceCode(): String
+    private external fun hostsyncSaveGithubToken(token: String): Int
+
+    // Public wrappers for composable access
+    fun requestDeviceCode(): String = hostsyncRequestDeviceCode()
+    fun saveGithubToken(token: String): Int = hostsyncSaveGithubToken(token)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,10 +64,10 @@ class MainActivity : ComponentActivity() {
                     when (screen) {
                         AppScreen.LOGIN -> LoginScreen(
                             strings = strings,
-                            onLogin = {
-                                // Device Flow: open GitHub device auth page
-                                val url = "https://github.com/login/device"
-                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            activity = this@MainActivity,
+                            onLoginSuccess = {
+                                servers = loadServers()
+                                screen = AppScreen.HOME
                             },
                             onOpenSettings = {
                                 settingsReturnScreen = AppScreen.LOGIN
@@ -111,9 +122,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun LoginScreen(
     strings: AppStrings,
-    onLogin: () -> Unit,
+    activity: MainActivity,
+    onLoginSuccess: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    var userCode by remember { mutableStateOf<String?>(null) }
+    var verificationUri by remember { mutableStateOf<String?>(null) }
+    var deviceCode by remember { mutableStateOf<String?>(null) }
+    var polling by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -123,8 +142,154 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(8.dp))
         Text(strings.subtitle, style = MaterialTheme.typography.bodyMedium)
         Spacer(modifier = Modifier.height(32.dp))
-        Button(onClick = onLogin) {
-            Text(strings.signInWithGitHub)
+
+        if (userCode != null && deviceCode != null) {
+            // Show device code and polling status
+            Card(
+                modifier = Modifier.padding(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        strings.openAndEnterCode,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        userCode!!,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        verificationUri ?: "https://github.com/login/device",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    if (polling) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(strings.waitingForAuthorization, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (errorMsg != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        Button(
+            onClick = {
+                if (deviceCode == null) {
+                    // Step 1: Request device code
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val json = JSONObject(activity.requestDeviceCode())
+                            if (json.has("error")) {
+                                withContext(Dispatchers.Main) {
+                                    errorMsg = json.getString("error")
+                                }
+                                return@launch
+                            }
+                            val uc = json.getString("user_code")
+                            val dc = json.getString("device_code")
+                            val uri = json.getString("verification_uri")
+                            val interval = json.optLong("interval", 5)
+
+                            withContext(Dispatchers.Main) {
+                                userCode = uc
+                                verificationUri = uri
+                                deviceCode = dc
+                                polling = true
+                            }
+
+                            // Open browser for user to enter code
+                            withContext(Dispatchers.Main) {
+                                activity.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(uri))
+                                )
+                            }
+
+                            // Step 2: Poll for token
+                            val client = OkHttpClient.Builder()
+                                .connectTimeout(30, TimeUnit.SECONDS)
+                                .readTimeout(30, TimeUnit.SECONDS)
+                                .build()
+
+                            var intervalSec = interval
+                            val deadline = System.currentTimeMillis() + 900_000
+                            while (System.currentTimeMillis() < deadline) {
+                                delay(intervalSec * 1000)
+
+                                val formBody = FormBody.Builder()
+                                    .add("client_id", "Ov23liGz0a5kU4v1LwKI")
+                                    .add("device_code", dc)
+                                    .add("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
+                                    .build()
+
+                                val request = Request.Builder()
+                                    .url("https://github.com/login/oauth/access_token")
+                                    .header("Accept", "application/json")
+                                    .post(formBody)
+                                    .build()
+
+                                val response = client.newCall(request).execute()
+                                val body = JSONObject(response.body?.string() ?: "{}")
+
+                                if (body.has("access_token")) {
+                                    val token = body.getString("access_token")
+                                    // Save token via Rust FFI
+                                    activity.saveGithubToken(token)
+                                    withContext(Dispatchers.Main) {
+                                        polling = false
+                                        onLoginSuccess()
+                                    }
+                                    return@launch
+                                }
+
+                                when (body.optString("error")) {
+                                    "slow_down" -> intervalSec += 5
+                                    "expired_token", "access_denied" -> {
+                                        withContext(Dispatchers.Main) {
+                                            errorMsg = body.optString("error_description", "Login failed")
+                                            polling = false
+                                        }
+                                        return@launch
+                                    }
+                                    // authorization_pending → keep polling
+                                }
+                            }
+                            withContext(Dispatchers.Main) {
+                                errorMsg = "Device code expired"
+                                polling = false
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                errorMsg = e.message ?: "Unknown error"
+                                polling = false
+                            }
+                        }
+                    }
+                } else {
+                    // Re-open browser
+                    activity.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(verificationUri ?: "https://github.com/login/device"))
+                    )
+                }
+            },
+            enabled = !polling
+        ) {
+            Text(
+                if (userCode == null) strings.signInWithGitHub
+                else strings.openGitHub
+            )
         }
         Spacer(modifier = Modifier.height(12.dp))
         TextButton(onClick = onOpenSettings) {

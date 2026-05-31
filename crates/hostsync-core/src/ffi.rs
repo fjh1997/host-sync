@@ -62,6 +62,76 @@ pub extern "C" fn hostsync_get_github_username() -> *mut c_char {
     CString::new(name).unwrap().into_raw()
 }
 
+/// Request a GitHub Device Flow device code. Returns JSON string.
+#[no_mangle]
+pub extern "C" fn hostsync_request_device_code() -> *mut c_char {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = rt.block_on(crate::auth::request_device_code());
+    match result {
+        Ok(dc) => {
+            let json = serde_json::json!({
+                "user_code": dc.user_code,
+                "verification_uri": dc.verification_uri,
+                "device_code": dc.device_code,
+                "interval": dc.interval,
+                "expires_in": dc.expires_in,
+            });
+            CString::new(json.to_string()).unwrap().into_raw()
+        }
+        Err(e) => {
+            let json = serde_json::json!({ "error": e });
+            CString::new(json.to_string()).unwrap().into_raw()
+        }
+    }
+}
+
+/// Poll for GitHub access token using a device code. Blocks until done.
+/// `device_code` and `interval` are C strings: "device_code\0interval".
+#[no_mangle]
+pub unsafe extern "C" fn hostsync_poll_for_token(
+    device_code: *const c_char,
+    interval: u64,
+) -> i32 {
+    let c_str = unsafe { CStr::from_ptr(device_code) };
+    let dc_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let dc = crate::auth::DeviceCode {
+        user_code: String::new(),
+        verification_uri: String::new(),
+        device_code: dc_str.to_string(),
+        interval,
+        expires_in: 900,
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    match rt.block_on(crate::auth::poll_for_token(&dc)) {
+        Ok(_) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// Save a GitHub token directly (for Device Flow completion from Kotlin side).
+#[no_mangle]
+pub unsafe extern "C" fn hostsync_save_github_token(token: *const c_char) -> i32 {
+    let c_str = unsafe { CStr::from_ptr(token) };
+    let token_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let existing = storage::load_github_state();
+    let state = storage::GithubState {
+        token: Some(token_str.to_string()),
+        gist_id: existing.gist_id,
+        username: existing.username,
+        avatar_url: existing.avatar_url,
+    };
+    match storage::save_github_state(&state) {
+        Ok(_) => 0,
+        Err(_) => -2,
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn hostsync_has_sync_passphrase() -> i32 {
     if storage::has_sync_passphrase() { 1 } else { 0 }
@@ -167,5 +237,25 @@ mod android_jni {
     ) -> jni::sys::jstring {
         let s = super::hostsync_get_github_username();
         rust_to_java_string(&mut env, s)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncRequestDeviceCode(
+        mut env: JNIEnv,
+        _class: JClass,
+    ) -> jni::sys::jstring {
+        let s = super::hostsync_request_device_code();
+        rust_to_java_string(&mut env, s)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncSaveGithubToken(
+        mut env: JNIEnv,
+        _class: JClass,
+        token: JString,
+    ) -> jint {
+        let token_str: String = env.get_string(&token).unwrap().into();
+        let c_token = CString::new(token_str).unwrap();
+        unsafe { super::hostsync_save_github_token(c_token.as_ptr()) }
     }
 }

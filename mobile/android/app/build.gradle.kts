@@ -50,4 +50,5 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.7.8")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.jcraft:jsch:0.1.55")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

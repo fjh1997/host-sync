@@ -39,6 +39,9 @@ data class AppStrings(
     val connect: String,
     val commandHint: String,
     val send: String,
+    val openAndEnterCode: String,
+    val waitingForAuthorization: String,
+    val openGitHub: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -112,6 +115,9 @@ object LanguagePrefs {
                 connect = "Connect",
                 commandHint = "Type command...",
                 send = "Send",
+                openAndEnterCode = "Open GitHub and enter code:",
+                waitingForAuthorization = "Waiting for authorization...",
+                openGitHub = "Open GitHub",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -128,6 +134,9 @@ object LanguagePrefs {
                 connect = "连接",
                 commandHint = "输入命令...",
                 send = "发送",
+                openAndEnterCode = "打开 GitHub 并输入验证码：",
+                waitingForAuthorization = "等待授权中...",
+                openGitHub = "打开 GitHub",
             )
         }
     }
