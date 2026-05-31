@@ -90,3 +90,82 @@ pub unsafe extern "C" fn hostsync_free_string(s: *mut c_char) {
         unsafe { drop(CString::from_raw(s)) };
     }
 }
+
+// ---------------------------------------------------------------------------
+// Android JNI wrappers – bridge Kotlin `external fun` to the C FFI above.
+// ---------------------------------------------------------------------------
+#[cfg(target_os = "android")]
+mod android_jni {
+    use jni::objects::{JClass, JString};
+    use jni::sys::jint;
+    use jni::JNIEnv;
+    use std::ffi::{CStr, CString};
+
+    fn rust_to_java_string(env: &mut JNIEnv, s: *mut std::os::raw::c_char) -> jni::sys::jstring {
+        if s.is_null() {
+            return std::ptr::null_mut();
+        }
+        let c_str = unsafe { CStr::from_ptr(s) };
+        let java_str = env.new_string(c_str.to_str().unwrap_or("")).unwrap();
+        unsafe { super::hostsync_free_string(s) };
+        java_str.into_raw()
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncLoadServersJson(
+        mut env: JNIEnv,
+        _class: JClass,
+    ) -> jni::sys::jstring {
+        let s = super::hostsync_load_servers_json();
+        rust_to_java_string(&mut env, s)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncSaveServersJson(
+        mut env: JNIEnv,
+        _class: JClass,
+        json: JString,
+    ) -> jint {
+        let json_str: String = env.get_string(&json).unwrap().into();
+        let c_json = CString::new(json_str).unwrap();
+        unsafe { super::hostsync_save_servers_json(c_json.as_ptr()) }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncParseSshConfig(
+        mut env: JNIEnv,
+        _class: JClass,
+        config: JString,
+    ) -> jni::sys::jstring {
+        let config_str: String = env.get_string(&config).unwrap().into();
+        let c_config = CString::new(config_str).unwrap();
+        let s = unsafe { super::hostsync_parse_ssh_config(c_config.as_ptr()) };
+        rust_to_java_string(&mut env, s)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncGenerateSshConfig(
+        mut env: JNIEnv,
+        _class: JClass,
+    ) -> jni::sys::jstring {
+        let s = super::hostsync_generate_ssh_config();
+        rust_to_java_string(&mut env, s)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncIsLoggedIn(
+        _env: JNIEnv,
+        _class: JClass,
+    ) -> jint {
+        super::hostsync_is_logged_in()
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncGetGithubUsername(
+        mut env: JNIEnv,
+        _class: JClass,
+    ) -> jni::sys::jstring {
+        let s = super::hostsync_get_github_username();
+        rust_to_java_string(&mut env, s)
+    }
+}
