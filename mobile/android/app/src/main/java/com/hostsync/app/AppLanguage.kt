@@ -177,8 +177,8 @@ object LanguagePrefs {
                 save = "Save",
                 copiedToClipboard = "Command copied to clipboard",
                 termuxTitle = "Termux Required",
-                termuxDesc = "Please install Termux from F-Droid/Google Play, then enable \"Allow external apps\" in Termux Settings > Allow external apps.",
-                openSettings = "Open Termux",
+                termuxDesc = "Please install Termux, then in the app info page:\n1. Enable \"Allow external apps\" in Termux settings\n2. Enable \"Associated launch\" / \"Cross-app launch\" permission (MIUI/ColorOS/HarmonyOS)",
+                openSettings = "Termux App Info",
                 connectAnyway = "Connect Anyway",
             )
             AppLanguage.CHINESE -> AppStrings(
@@ -227,8 +227,8 @@ object LanguagePrefs {
                 save = "保存",
                 copiedToClipboard = "命令已复制到剪贴板",
                 termuxTitle = "需要安装 Termux",
-                termuxDesc = "请先从 F-Droid/Google Play 安装 Termux，然后在 Termux 设置中开启「允许外部应用」。",
-                openSettings = "打开 Termux",
+                termuxDesc = "请先安装 Termux，然后在应用详情页中：\n1. 开启 Termux 设置中的「允许外部应用」\n2. 国产系统还需开启「关联启动」权限（MIUI/ColorOS/鸿蒙等）",
+                openSettings = "Termux 应用详情",
                 connectAnyway = "仍然连接",
             )
         }

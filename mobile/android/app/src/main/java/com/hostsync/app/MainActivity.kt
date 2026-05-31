@@ -320,18 +320,20 @@ fun isTermuxInstalled(context: Context): Boolean {
     }
 }
 
-/// Open Termux settings to enable "Allow external apps"
+/// Open Termux settings — open system app info page (covers all ROMs)
 fun openTermuxSettings(context: Context) {
     try {
-        val intent = Intent().apply {
-            setClassName("com.termux", "com.termux.app.TermuxPreferencesActivity")
+        // Open system app info page for Termux — user can find all permissions here
+        // including "关联启动" (cross-app launch) on MIUI/ColorOS/HarmonyOS etc.
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:com.termux")
         }
         context.startActivity(intent)
     } catch (_: Exception) {
-        // Fallback: open Termux app info in system settings
+        // Fallback: try launching Termux settings directly
         try {
-            val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:com.termux")
+            val intent = Intent().apply {
+                setClassName("com.termux", "com.termux.app.TermuxPreferencesActivity")
             }
             context.startActivity(intent)
         } catch (_: Exception) {}
