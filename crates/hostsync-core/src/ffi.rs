@@ -184,6 +184,11 @@ pub extern "C" fn hostsync_sync_download() -> i32 {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn hostsync_has_sync_passphrase() -> i32 {
+    if storage::has_sync_passphrase() { 1 } else { 0 }
+}
+
 /// # Safety
 /// `passphrase` must be a valid, non-null, NUL-terminated C string.
 #[no_mangle]
@@ -320,5 +325,24 @@ mod android_jni {
         _class: JClass,
     ) -> jint {
         super::hostsync_sync_download()
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncSetSyncPassphrase(
+        mut env: JNIEnv,
+        _class: JClass,
+        passphrase: JString,
+    ) -> jint {
+        let pp_str: String = env.get_string(&passphrase).unwrap().into();
+        let c_pp = CString::new(pp_str).unwrap();
+        unsafe { super::hostsync_set_sync_passphrase(c_pp.as_ptr()) }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncHasSyncPassphrase(
+        _env: JNIEnv,
+        _class: JClass,
+    ) -> jint {
+        super::hostsync_has_sync_passphrase()
     }
 }

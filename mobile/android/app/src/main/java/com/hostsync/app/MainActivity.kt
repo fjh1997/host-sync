@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit
 
 private enum class AppScreen {
     LOGIN,
+    SYNC_PASSPHRASE,
     HOME,
     SETTINGS,
 }
@@ -52,11 +53,15 @@ class MainActivity : ComponentActivity() {
     private external fun hostsyncSaveGithubToken(token: String): Int
     private external fun hostsyncFetchUsername(): Int
     private external fun hostsyncSyncDownload(): Int
+    private external fun hostsyncSetSyncPassphrase(passphrase: String): Int
+    private external fun hostsyncHasSyncPassphrase(): Int
 
     // Public wrappers for composable access
     fun saveGithubToken(token: String): Int = hostsyncSaveGithubToken(token)
     fun fetchUsername(): Int = hostsyncFetchUsername()
     fun syncDownload(): Int = hostsyncSyncDownload()
+    fun setSyncPassphrase(pp: String): Int = hostsyncSetSyncPassphrase(pp)
+    fun hasSyncPassphrase(): Boolean = hostsyncHasSyncPassphrase() == 1
 
     // Shared OkHttpClient with optional SOCKS5 proxy
     fun httpClient(): OkHttpClient {
@@ -86,18 +91,43 @@ class MainActivity : ComponentActivity() {
                 var languageSetting by remember { mutableStateOf(LanguagePrefs.load(this)) }
                 val strings = LanguagePrefs.strings(this, languageSetting)
 
+                val syncScope = rememberCoroutineScope()
+
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (screen) {
                         AppScreen.LOGIN -> LoginScreen(
                             strings = strings,
                             activity = this@MainActivity,
                             onLoginSuccess = {
-                                servers = loadServers()
-                                screen = AppScreen.HOME
+                                if (this@MainActivity.hasSyncPassphrase()) {
+                                    syncScope.launch(Dispatchers.IO) {
+                                        this@MainActivity.syncDownload()
+                                        withContext(Dispatchers.Main) {
+                                            servers = loadServers()
+                                            screen = AppScreen.HOME
+                                        }
+                                    }
+                                } else {
+                                    screen = AppScreen.SYNC_PASSPHRASE
+                                }
                             },
                             onOpenSettings = {
                                 settingsReturnScreen = AppScreen.LOGIN
                                 screen = AppScreen.SETTINGS
+                            },
+                        )
+                        AppScreen.SYNC_PASSPHRASE -> SyncPassphraseScreen(
+                            strings = strings,
+                            activity = this@MainActivity,
+                            scope = syncScope,
+                            onSuccess = {
+                                syncScope.launch(Dispatchers.IO) {
+                                    this@MainActivity.syncDownload()
+                                    withContext(Dispatchers.Main) {
+                                        servers = loadServers()
+                                        screen = AppScreen.HOME
+                                    }
+                                }
                             },
                         )
                         AppScreen.HOME -> HomeScreen(
@@ -364,6 +394,67 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(12.dp))
         TextButton(onClick = onOpenSettings) {
             Text(strings.settings)
+        }
+    }
+}
+
+@Composable
+fun SyncPassphraseScreen(
+    strings: AppStrings,
+    activity: MainActivity,
+    scope: CoroutineScope,
+    onSuccess: () -> Unit,
+) {
+    var passphrase by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(strings.syncPassphraseTitle, style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(strings.syncPassphraseDesc, style = MaterialTheme.typography.bodyMedium)
+        Spacer(modifier = Modifier.height(24.dp))
+        OutlinedTextField(
+            value = passphrase,
+            onValueChange = { passphrase = it },
+            label = { Text(strings.syncPassphrase) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+        } else {
+            Button(
+                onClick = {
+                    if (passphrase.isBlank()) return@Button
+                    loading = true
+                    errorMsg = null
+                    scope.launch(Dispatchers.IO) {
+                        activity.setSyncPassphrase(passphrase)
+                        val result = activity.syncDownload()
+                        withContext(Dispatchers.Main) {
+                            loading = false
+                            if (result == 0) {
+                                onSuccess()
+                            } else {
+                                errorMsg = strings.syncPassphraseError
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(strings.confirm)
+            }
+        }
+        if (errorMsg != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
         }
     }
 }

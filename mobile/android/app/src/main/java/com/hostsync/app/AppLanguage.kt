@@ -47,6 +47,11 @@ data class AppStrings(
     val proxySettings: String,
     val proxyHost: String,
     val proxyPort: String,
+    val syncPassphraseTitle: String,
+    val syncPassphraseDesc: String,
+    val syncPassphrase: String,
+    val syncPassphraseError: String,
+    val confirm: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -128,6 +133,11 @@ object LanguagePrefs {
                 proxySettings = "Proxy (SOCKS5)",
                 proxyHost = "Host (e.g. 192.168.1.5)",
                 proxyPort = "Port (e.g. 10808)",
+                syncPassphraseTitle = "Sync Passphrase",
+                syncPassphraseDesc = "Enter your sync passphrase to decrypt server data from GitHub Gist.",
+                syncPassphrase = "Sync Passphrase",
+                syncPassphraseError = "Wrong passphrase or no data in Gist",
+                confirm = "Confirm",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -152,6 +162,11 @@ object LanguagePrefs {
                 proxySettings = "代理 (SOCKS5)",
                 proxyHost = "主机 (如 192.168.1.5)",
                 proxyPort = "端口 (如 10808)",
+                syncPassphraseTitle = "同步口令",
+                syncPassphraseDesc = "请输入同步口令以解密 GitHub Gist 中的服务器数据。",
+                syncPassphrase = "同步口令",
+                syncPassphraseError = "口令错误或 Gist 中无数据",
+                confirm = "确认",
             )
         }
     }
