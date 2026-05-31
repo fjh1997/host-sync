@@ -213,6 +213,17 @@ pub unsafe extern "C" fn hostsync_free_string(s: *mut c_char) {
     }
 }
 
+/// Set the data directory path (for Android).
+/// # Safety
+/// `path` must be a valid, non-null, NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn hostsync_set_data_dir(path: *const c_char) {
+    let c_str = unsafe { CStr::from_ptr(path) };
+    if let Ok(s) = c_str.to_str() {
+        storage::set_data_dir(s);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Android JNI wrappers – bridge Kotlin `external fun` to the C FFI above.
 // ---------------------------------------------------------------------------
@@ -344,5 +355,16 @@ mod android_jni {
         _class: JClass,
     ) -> jint {
         super::hostsync_has_sync_passphrase()
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncSetDataDir(
+        mut env: JNIEnv,
+        _class: JClass,
+        path: JString,
+    ) {
+        let path_str: String = env.get_string(&path).unwrap().into();
+        let c_path = CString::new(path_str).unwrap();
+        unsafe { super::hostsync_set_data_dir(c_path.as_ptr()) }
     }
 }

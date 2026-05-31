@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private external fun hostsyncSyncDownload(): Int
     private external fun hostsyncSetSyncPassphrase(passphrase: String): Int
     private external fun hostsyncHasSyncPassphrase(): Int
+    private external fun hostsyncSetDataDir(path: String)
 
     // Public wrappers for composable access
     fun saveGithubToken(token: String): Int = hostsyncSaveGithubToken(token)
@@ -81,6 +82,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Tell Rust where to store data
+        hostsyncSetDataDir(filesDir.absolutePath)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 var servers by remember { mutableStateOf(loadServers()) }

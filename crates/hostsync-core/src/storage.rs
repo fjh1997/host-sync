@@ -1,8 +1,19 @@
 use crate::crypto;
 use crate::model::Server;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+static OVERRIDE_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the data directory (used on Android where dirs::data_dir is wrong).
+pub fn set_data_dir(path: &str) {
+    let _ = OVERRIDE_DATA_DIR.set(PathBuf::from(path));
+}
 
 fn data_dir() -> PathBuf {
+    if let Some(p) = OVERRIDE_DATA_DIR.get() {
+        return p.join("hostsync");
+    }
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("hostsync")
