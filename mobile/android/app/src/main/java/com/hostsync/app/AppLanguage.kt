@@ -72,6 +72,7 @@ data class AppStrings(
     val termuxTitle: String,
     val termuxDesc: String,
     val openSettings: String,
+    val connectAnyway: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -178,6 +179,7 @@ object LanguagePrefs {
                 termuxTitle = "Termux Required",
                 termuxDesc = "Please install Termux from F-Droid/Google Play, then enable \"Allow external apps\" in Termux Settings > Allow external apps.",
                 openSettings = "Open Termux",
+                connectAnyway = "Connect Anyway",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -227,6 +229,7 @@ object LanguagePrefs {
                 termuxTitle = "需要安装 Termux",
                 termuxDesc = "请先从 F-Droid/Google Play 安装 Termux，然后在 Termux 设置中开启「允许外部应用」。",
                 openSettings = "打开 Termux",
+                connectAnyway = "仍然连接",
             )
         }
     }

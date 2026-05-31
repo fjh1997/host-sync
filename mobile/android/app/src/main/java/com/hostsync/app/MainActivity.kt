@@ -633,6 +633,7 @@ fun HomeScreen(
 ) {
     var deleteIdx by remember { mutableStateOf<Int?>(null) }
     var showTermuxDialog by remember { mutableStateOf(false) }
+    var pendingCommand by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -662,10 +663,8 @@ fun HomeScreen(
                         strings = strings,
                         server = server,
                         onConnect = {
-                            val cmd = buildSshCommand(server)
-                            if (!launchTermux(context, cmd)) {
-                                showTermuxDialog = true
-                            }
+                            pendingCommand = buildSshCommand(server)
+                            showTermuxDialog = true
                         },
                         onCopy = { onCopy(server) },
                         onEdit = { onEdit(idx) },
@@ -702,12 +701,17 @@ fun HomeScreen(
             text = { Text(strings.termuxDesc) },
             confirmButton = {
                 TextButton(onClick = {
-                    showTermuxDialog = false
                     openTermuxSettings(context)
                 }) { Text(strings.openSettings) }
             },
             dismissButton = {
-                TextButton(onClick = { showTermuxDialog = false }) { Text(strings.cancel) }
+                Row {
+                    TextButton(onClick = { showTermuxDialog = false }) { Text(strings.cancel) }
+                    TextButton(onClick = {
+                        showTermuxDialog = false
+                        pendingCommand?.let { launchTermux(context, it) }
+                    }) { Text(strings.connectAnyway) }
+                }
             },
         )
     }
