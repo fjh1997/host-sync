@@ -283,8 +283,13 @@ fun buildSshCommand(server: JSONObject): String {
 }
 
 /// Launch Termux to run a command
+/// Returns true if Termux was launched, false if not installed
 fun launchTermux(context: Context, command: String): Boolean {
-    // Try Termux RUN_COMMAND service first
+    // Copy command to clipboard so user can paste it
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText("ssh_command", command))
+
+    // Try RUN_COMMAND service first
     try {
         val intent = Intent("com.termux.RUN_COMMAND").apply {
             setPackage("com.termux")
@@ -294,15 +299,17 @@ fun launchTermux(context: Context, command: String): Boolean {
             putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
         }
         context.startService(intent)
+        Toast.makeText(context, "SSH command sent to Termux", Toast.LENGTH_SHORT).show()
         return true
     } catch (_: Exception) {}
 
-    // Fallback: try launching TermuxActivity directly
+    // Fallback: launch TermuxActivity (user pastes manually)
     try {
         val intent = Intent().apply {
             setClassName("com.termux", "com.termux.app.TermuxActivity")
         }
         context.startActivity(intent)
+        Toast.makeText(context, "Command copied. Long-press to paste in Termux.", Toast.LENGTH_LONG).show()
         return true
     } catch (_: Exception) {}
 
