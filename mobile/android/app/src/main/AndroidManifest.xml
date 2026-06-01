@@ -18,6 +18,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Handle OAuth callback: hostsync://oauth/callback?code=xxx -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="hostsync"
+                    android:host="oauth"
+                    android:pathPrefix="/callback" />
+            </intent-filter>
         </activity>
 
         <activity android:name=".TerminalActivity" />

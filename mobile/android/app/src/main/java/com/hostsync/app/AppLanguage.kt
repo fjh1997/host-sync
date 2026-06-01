@@ -77,6 +77,13 @@ data class AppStrings(
     val connectAnyway: String,
     val sync: String,
     val syncComplete: String,
+    val githubAppClientId: String,
+    val githubAppClientIdHint: String,
+    val loginWithGithubApp: String,
+    val loginWithBrowser: String,
+    val deviceFlow: String,
+    val loggingIn: String,
+    val loggingInDesc: String,
 ) {
     fun systemLanguageDetected(name: String): String {
         return when (language) {
@@ -188,6 +195,13 @@ object LanguagePrefs {
                 connectAnyway = "Connect Anyway",
                 sync = "Sync",
                 syncComplete = "Sync complete",
+                githubAppClientId = "GitHub App Client ID",
+                githubAppClientIdHint = "Enter Client ID from your GitHub App",
+                loginWithGithubApp = "Login with GitHub App",
+                loginWithBrowser = "Login with Browser",
+                deviceFlow = "Device Flow",
+                loggingIn = "Logging in...",
+                loggingInDesc = "Exchanging token with GitHub, please wait...",
             )
             AppLanguage.CHINESE -> AppStrings(
                 language = AppLanguage.CHINESE,
@@ -242,6 +256,13 @@ object LanguagePrefs {
                 connectAnyway = "仍然连接",
                 sync = "同步",
                 syncComplete = "同步完成",
+                githubAppClientId = "GitHub App Client ID",
+                githubAppClientIdHint = "输入你创建的 GitHub App 的 Client ID",
+                loginWithGithubApp = "使用 GitHub App 登录",
+                loginWithBrowser = "使用浏览器登录",
+                deviceFlow = "Device Flow",
+                loggingIn = "登录中...",
+                loggingInDesc = "正在与 GitHub 交换 token，请稍候...",
             )
         }
     }

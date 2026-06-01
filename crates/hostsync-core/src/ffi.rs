@@ -311,7 +311,7 @@ mod android_jni {
     }
 
     #[no_mangle]
-    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncLogout(
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncLogoutNative(
         _env: JNIEnv,
         _class: JClass,
     ) -> jint {

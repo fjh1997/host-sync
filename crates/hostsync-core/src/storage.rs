@@ -118,7 +118,10 @@ pub fn save_github_state(state: &GithubState) -> std::io::Result<()> {
 }
 
 pub fn clear_github_state() -> std::io::Result<()> {
-    let _ = std::fs::remove_file(token_path());
+    let path = token_path();
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
     Ok(())
 }
 

@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -46,13 +47,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // OAuth loading state (class-level for access from handleOAuthCallback)
+    var oauthLoading = mutableStateOf(false)
+        private set
+
     // JNI bindings to Rust FFI
     private external fun hostsyncLoadServersJson(): String
     private external fun hostsyncSaveServersJson(json: String): Int
     private external fun hostsyncParseSshConfig(config: String): String
     private external fun hostsyncGenerateSshConfig(): String
     private external fun hostsyncIsLoggedIn(): Int
-    internal external fun hostsyncLogout(): Int
+    fun hostsyncLogout(): Int = hostsyncLogoutNative()
+    private external fun hostsyncLogoutNative(): Int
     private external fun hostsyncGetGithubUsername(): String
     private external fun hostsyncSaveGithubToken(token: String): Int
     private external fun hostsyncFetchUsername(): Int
@@ -88,6 +94,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Tell Rust where to store data
         hostsyncSetDataDir(filesDir.absolutePath)
+
+        // Handle OAuth callback
+        handleOAuthCallback(intent)
+
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 var servers by remember { mutableStateOf(loadServers()) }
@@ -118,6 +128,7 @@ class MainActivity : ComponentActivity() {
                         AppScreen.LOGIN -> LoginScreen(
                             strings = strings,
                             activity = this@MainActivity,
+                            oauthLoading = oauthLoading.value,
                             onLoginSuccess = {
                                 if (this@MainActivity.hasSyncPassphrase()) {
                                     syncScope.launch(Dispatchers.IO) {
@@ -245,6 +256,7 @@ class MainActivity : ComponentActivity() {
                             activity = this@MainActivity,
                             languageSetting = languageSetting,
                             systemLanguageName = LanguagePrefs.currentSystemLanguageName(this, strings),
+                            isLoggedIn = hostsyncIsLoggedIn() == 1,
                             onLanguageSelected = { selected ->
                                 languageSetting = selected
                                 LanguagePrefs.save(this, selected)
@@ -256,6 +268,93 @@ class MainActivity : ComponentActivity() {
                                 screen = AppScreen.LOGIN
                             },
                         )
+                    }
+                }
+
+                // OAuth loading dialog
+                if (oauthLoading.value) {
+                    AlertDialog(
+                        onDismissRequest = { },
+                        title = { Text(strings.loggingIn) },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Text(strings.loggingInDesc)
+                            }
+                        },
+                        confirmButton = { }
+                    )
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOAuthCallback(intent)
+    }
+
+    private fun handleOAuthCallback(intent: Intent?) {
+        val uri = intent?.data ?: return
+        // Handle hostsync://oauth/callback?code=xxx
+        if (uri.scheme == "hostsync" && uri.host == "oauth" && uri.path?.startsWith("/callback") == true) {
+            val code = uri.getQueryParameter("code") ?: return
+            val prefs = getSharedPreferences("hostsync_settings", MODE_PRIVATE)
+            val codeVerifier = prefs.getString("oauth_code_verifier", "") ?: ""
+            // Clear code_verifier immediately to prevent duplicate requests
+            prefs.edit().remove("oauth_code_verifier").apply()
+            // Skip if already logged in (duplicate callback)
+            if (hostsyncIsLoggedIn() == 1) return
+            android.util.Log.d("HostSync", "OAuth callback: code=$code, has_verifier=${codeVerifier.isNotEmpty()}")
+            oauthLoading.value = true
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val client = httpClient()
+                    val formBodyBuilder = FormBody.Builder()
+                        .add("client_id", GITHUB_CLIENT_ID)
+                        .add("client_secret", GITHUB_CLIENT_SECRET)
+                        .add("code", code)
+                        .add("redirect_uri", "hostsync://oauth/callback")
+                    if (codeVerifier.isNotEmpty()) {
+                        formBodyBuilder.add("code_verifier", codeVerifier)
+                    }
+                    android.util.Log.d("HostSync", "Exchanging code for token...")
+                    val request = Request.Builder()
+                        .url("https://github.com/login/oauth/access_token")
+                        .header("Accept", "application/json")
+                        .header("User-Agent", "HostSync/1.0")
+                        .post(formBodyBuilder.build())
+                        .build()
+                    val response = client.newCall(request).execute()
+                    val bodyStr = response.body?.string() ?: "{}"
+                    response.close()
+                    android.util.Log.d("HostSync", "Token response: $bodyStr")
+                    val json = JSONObject(bodyStr)
+                    if (json.has("access_token")) {
+                        val token = json.getString("access_token")
+                        android.util.Log.d("HostSync", "Got token, saving...")
+                        saveGithubToken(token)
+                        fetchUsername()
+                        syncDownload()
+                        withContext(Dispatchers.Main) {
+                            oauthLoading.value = false
+                            Toast.makeText(this@MainActivity, "Login successful", Toast.LENGTH_SHORT).show()
+                            recreate()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            oauthLoading.value = false
+                            val error = json.optString("error", "") + ": " + json.optString("error_description", "")
+                            android.util.Log.e("HostSync", "Login failed: $error Response: $bodyStr")
+                            Toast.makeText(this@MainActivity, "Login failed: $error", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("HostSync", "OAuth exception: ${e.javaClass.simpleName}: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        oauthLoading.value = false
+                        Toast.makeText(this@MainActivity, "Login failed: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -375,27 +474,44 @@ fun launchTermux(context: Context, command: String): Boolean {
     return false
 }
 
-/// Check if Termux is installed
 /// Open GitHub for device code verification.
 /// Try GitHub App (com.github.android) first, fallback to browser.
 fun openGitHubForDeviceCode(context: Context, userCode: String, fallbackUri: String) {
     // Try GitHub App deep link first
-    // GitHub App supports: github://login/device?action=activate&code=XXXX-XXXX
+    // GitHub App handles https://github.com/* links
     try {
-        val githubAppUri = Uri.parse("github://login/device?action=activate&code=$userCode")
-        val intent = Intent(Intent.ACTION_VIEW, githubAppUri).apply {
-            setPackage("com.github.android")
-        }
-        if (intent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(intent)
-            return
-        }
-    } catch (_: Exception) {}
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri))
+        // Let system choose: GitHub App or browser
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        // Fallback: open browser explicitly
+        try {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri))
+            browserIntent.setPackage("com.android.chrome")
+            context.startActivity(browserIntent)
+        } catch (_: Exception) {}
+    }
+}
 
-    // Fallback: open browser with verification URI
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)))
-    } catch (_: Exception) {}
+/// Launch GitHub OAuth via browser with PKCE
+const val GITHUB_CLIENT_ID = "Iv23limPMysvozY5U315"
+const val GITHUB_CLIENT_SECRET = "e02ff6231f4727b2743aebaa1bfa390d1284f8cd"
+
+fun generateCodeVerifier(): String {
+    val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    return (1..64).map { chars.random() }.joinToString("")
+}
+
+fun generateCodeChallenge(verifier: String): String {
+    val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray())
+    return android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+}
+
+fun launchGitHubOAuth(context: Context, codeVerifier: String) {
+    val redirectUri = "hostsync://oauth/callback"
+    val codeChallenge = generateCodeChallenge(codeVerifier)
+    val url = "https://github.com/login/oauth/authorize?client_id=$GITHUB_CLIENT_ID&redirect_uri=${java.net.URLEncoder.encode(redirectUri, "UTF-8")}&scope=gist+read:user&code_challenge=$codeChallenge&code_challenge_method=S256"
+    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
 }
 
 fun isTermuxInstalled(context: Context): Boolean {
@@ -431,6 +547,7 @@ fun openTermuxSettings(context: Context) {
 fun LoginScreen(
     strings: AppStrings,
     activity: MainActivity,
+    oauthLoading: Boolean,
     onLoginSuccess: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -512,7 +629,22 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
+        // GitHub OAuth button (with PKCE) - primary, highlighted
         Button(
+            onClick = {
+                val verifier = generateCodeVerifier()
+                val prefs = context.getSharedPreferences("hostsync_settings", Context.MODE_PRIVATE)
+                prefs.edit().putString("oauth_code_verifier", verifier).apply()
+                launchGitHubOAuth(context, verifier)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(strings.loginWithGithubApp)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Device Flow button (secondary, outlined)
+        OutlinedButton(
             onClick = {
                 if (deviceCode == null) {
                     // Step 1: Request device code
@@ -631,14 +763,16 @@ fun LoginScreen(
                     openGitHubForDeviceCode(activity, userCode ?: "", verificationUri ?: "https://github.com/login/device")
                 }
             },
+            modifier = Modifier.fillMaxWidth(),
             enabled = !polling
         ) {
             Text(
-                if (userCode == null) strings.signInWithGitHub
+                if (userCode == null) strings.deviceFlow
                 else strings.openGitHub
             )
         }
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
         TextButton(onClick = onOpenSettings) {
             Text(strings.settings)
         }
@@ -836,6 +970,7 @@ fun SettingsScreen(
     activity: MainActivity,
     languageSetting: AppLanguageSetting,
     systemLanguageName: String,
+    isLoggedIn: Boolean,
     onLanguageSelected: (AppLanguageSetting) -> Unit,
     onBack: () -> Unit,
     onLogout: () -> Unit,
@@ -843,6 +978,7 @@ fun SettingsScreen(
     val prefs = remember { activity.getSharedPreferences("hostsync_settings", Context.MODE_PRIVATE) }
     var proxyHost by remember { mutableStateOf(prefs.getString("proxy_host", "") ?: "") }
     var proxyPort by remember { mutableStateOf(if (prefs.getInt("proxy_port", 0) > 0) prefs.getInt("proxy_port", 0).toString() else "") }
+    var githubAppClientId by remember { mutableStateOf(prefs.getString("github_app_client_id", "") ?: "") }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -912,19 +1048,39 @@ fun SettingsScreen(
         )
 
         Spacer(modifier = Modifier.height(24.dp))
-        Text(strings.logout, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+        Text(strings.githubAppClientId, style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = {
-                // Clear GitHub state
-                activity.hostsyncLogout()
-                // Navigate to login screen
-                onLogout()
+        Text(
+            "Create a GitHub App at github.com/settings/apps, set callback URL to github://com.github.android/oauth",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = githubAppClientId,
+            onValueChange = {
+                githubAppClientId = it
+                prefs.edit().putString("github_app_client_id", it).apply()
             },
+            label = { Text(strings.githubAppClientId) },
+            placeholder = { Text(strings.githubAppClientIdHint) },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-        ) {
-            Text(strings.logout)
+            singleLine = true
+        )
+        if (isLoggedIn) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(strings.logout, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    activity.hostsyncLogout()
+                    onLogout()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text(strings.logout)
+            }
         }
     }
 }
