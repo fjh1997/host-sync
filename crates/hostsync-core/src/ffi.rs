@@ -140,6 +140,15 @@ pub unsafe extern "C" fn hostsync_save_github_token(token: *const c_char) -> i32
     }
 }
 
+/// Logout by removing the GitHub state file.
+#[no_mangle]
+pub extern "C" fn hostsync_logout() -> i32 {
+    match storage::clear_github_state() {
+        Ok(_) => 0,
+        Err(_) => -2,
+    }
+}
+
 /// Fetch GitHub username using saved token and update state. Returns 0 on success.
 #[no_mangle]
 pub extern "C" fn hostsync_fetch_username() -> i32 {
@@ -299,6 +308,14 @@ mod android_jni {
         _class: JClass,
     ) -> jint {
         super::hostsync_is_logged_in()
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_hostsync_app_MainActivity_hostsyncLogout(
+        _env: JNIEnv,
+        _class: JClass,
+    ) -> jint {
+        super::hostsync_logout()
     }
 
     #[no_mangle]

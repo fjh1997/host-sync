@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     private external fun hostsyncParseSshConfig(config: String): String
     private external fun hostsyncGenerateSshConfig(): String
     private external fun hostsyncIsLoggedIn(): Int
+    internal external fun hostsyncLogout(): Int
     private external fun hostsyncGetGithubUsername(): String
     private external fun hostsyncSaveGithubToken(token: String): Int
     private external fun hostsyncFetchUsername(): Int
@@ -251,6 +252,9 @@ class MainActivity : ComponentActivity() {
                             onBack = {
                                 screen = settingsReturnScreen
                             },
+                            onLogout = {
+                                screen = AppScreen.LOGIN
+                            },
                         )
                     }
                 }
@@ -299,7 +303,10 @@ fun buildSshCommand(server: JSONObject): String {
     val privateKey = server.optString("private_key", "")
     val idFile = convertToTermuxPath(server.optString("identity_file", ""))
 
-    val sshArgs = "-p $port -o StrictHostKeyChecking=no $user@$host"
+    // Common SSH options to fix KEX hang and keepalive
+    val sshOpts = "-o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -o ConnectTimeout=10 -o IPQoS=throughput"
+
+    val sshArgs = "-p $port $sshOpts $user@$host"
 
     // Password auth
     if (password.isNotEmpty()) {
@@ -314,7 +321,6 @@ fun buildSshCommand(server: JSONObject): String {
         val keyPath = if (serverId.isNotEmpty()) {
             "~/.ssh/hostsync_keys/$serverId.key"
         } else {
-            // Fallback if no ID (shouldn't happen)
             val safeName = "${host}_${user}".replace(Regex("[^a-zA-Z0-9._-]"), "_")
             "~/.ssh/hostsync_keys/$safeName.key"
         }
@@ -370,6 +376,28 @@ fun launchTermux(context: Context, command: String): Boolean {
 }
 
 /// Check if Termux is installed
+/// Open GitHub for device code verification.
+/// Try GitHub App (com.github.android) first, fallback to browser.
+fun openGitHubForDeviceCode(context: Context, userCode: String, fallbackUri: String) {
+    // Try GitHub App deep link first
+    // GitHub App supports: github://login/device?action=activate&code=XXXX-XXXX
+    try {
+        val githubAppUri = Uri.parse("github://login/device?action=activate&code=$userCode")
+        val intent = Intent(Intent.ACTION_VIEW, githubAppUri).apply {
+            setPackage("com.github.android")
+        }
+        if (intent.resolveActivity(context.packageManager) != null) {
+            context.startActivity(intent)
+            return
+        }
+    } catch (_: Exception) {}
+
+    // Fallback: open browser with verification URI
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUri)))
+    } catch (_: Exception) {}
+}
+
 fun isTermuxInstalled(context: Context): Boolean {
     return try {
         context.packageManager.getPackageInfo("com.termux", 0)
@@ -531,11 +559,9 @@ fun LoginScreen(
                                 polling = true
                             }
 
-                            // Open browser for user to enter code
+                            // Try GitHub App first, fallback to browser
                             withContext(Dispatchers.Main) {
-                                activity.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(uri))
-                                )
+                                openGitHubForDeviceCode(activity, uc, uri)
                             }
 
                             // Step 2: Poll for token
@@ -601,10 +627,8 @@ fun LoginScreen(
                         }
                     }
                 } else {
-                    // Re-open browser
-                    activity.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(verificationUri ?: "https://github.com/login/device"))
-                    )
+                    // Re-open GitHub App or browser
+                    openGitHubForDeviceCode(activity, userCode ?: "", verificationUri ?: "https://github.com/login/device")
                 }
             },
             enabled = !polling
@@ -814,6 +838,7 @@ fun SettingsScreen(
     systemLanguageName: String,
     onLanguageSelected: (AppLanguageSetting) -> Unit,
     onBack: () -> Unit,
+    onLogout: () -> Unit,
 ) {
     val prefs = remember { activity.getSharedPreferences("hostsync_settings", Context.MODE_PRIVATE) }
     var proxyHost by remember { mutableStateOf(prefs.getString("proxy_host", "") ?: "") }
@@ -885,6 +910,22 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(strings.logout, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                // Clear GitHub state
+                activity.hostsyncLogout()
+                // Navigate to login screen
+                onLogout()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+        ) {
+            Text(strings.logout)
+        }
     }
 }
 
